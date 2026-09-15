@@ -298,7 +298,7 @@ class TransitionController(QObject):
             return False
 
     def trigger_dialog_popup(self, session_payload: dict = None) -> bool:
-        if self.state != TransitionState.FADING and self.state != TransitionState.TRANSITION_DIALOG:
+        if self.state != TransitionState.FADING:
             return False
         try:
             if session_payload:
