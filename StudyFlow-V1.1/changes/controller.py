@@ -110,6 +110,16 @@ class WindowsVolumeManager(QObject):
             self.step_timer.stop()
         self._is_fading = False
 
+    def finish_at_volume(self, target_volume: float):
+        self.cancel_fade()
+        if not self.volume_interface:
+            return
+        try:
+            clamped_vol = max(0.0, min(1.0, target_volume))
+            self.volume_interface.SetMasterVolumeLevelScalar(clamped_vol, None)
+        except Exception as e:
+            print(f"Error finishing fade at volume {target_volume}: {e}")
+
     def restore_volume(self):
         self.cancel_fade()
         if not self.volume_interface:
@@ -226,9 +236,9 @@ class AutomatedTransitionMonitor:
                             self.triggered_dialog_sessions.add(session_id)
                             break
                     elif state == TransitionState.FADING:
-                        self.transition_controller.trigger_dialog_popup(session)
-                        self.triggered_dialog_sessions.add(session_id)
-                        break
+                        if self.transition_controller.trigger_dialog_popup(session):
+                            self.triggered_dialog_sessions.add(session_id)
+                            break
                     elif state == TransitionState.TRANSITION_DIALOG:
                         pass
                     elif state == TransitionState.SESSION_ACTIVE:
@@ -287,12 +297,19 @@ class TransitionController(QObject):
             self.cancel_transition()
             return False
 
-    def trigger_dialog_popup(self, session_payload: dict = None):
-        if session_payload:
-            self.session_data.update(session_payload)
-        
-        self.state = TransitionState.TRANSITION_DIALOG
-        self.show_dialog_requested.emit(self.session_data)
+    def trigger_dialog_popup(self, session_payload: dict = None) -> bool:
+        if self.state != TransitionState.FADING and self.state != TransitionState.TRANSITION_DIALOG:
+            return False
+        try:
+            if session_payload:
+                self.session_data.update(session_payload)
+            
+            self.state = TransitionState.TRANSITION_DIALOG
+            self.show_dialog_requested.emit(self.session_data)
+            return True
+        except Exception as e:
+            traceback.print_exc()
+            return False
 
     def start_transition_sequence(self, session_payload: dict, fade_sec: int = None, countdown_sec: int = None) -> bool:
         if self.state != TransitionState.IDLE:
@@ -324,10 +341,7 @@ class TransitionController(QObject):
             return
 
         try:
-            if self.volume_manager.volume_interface:
-                self.volume_manager.volume_interface.SetMasterVolumeLevelScalar(0.15, None)
-            
-            self.volume_manager.cancel_fade()
+            self.volume_manager.finish_at_volume(0.15)
             self.state = TransitionState.SESSION_ACTIVE
             
             # Ensures the original title and session metadata are never overwritten
