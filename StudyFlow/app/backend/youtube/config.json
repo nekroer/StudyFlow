@@ -1,8 +1,0 @@
-{
-    "vlc_password": "mypassword",
-    "vlc_url": "http://YOUR_PASSWORD_HERE@127.0.0.1:8080/requests/status.json",
-    "low_volume": 30,
-    "high_volume": 80,
-    "fade_time": 0.5,
-    "fade_steps": 20
-}
