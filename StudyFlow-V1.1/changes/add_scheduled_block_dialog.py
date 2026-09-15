@@ -1,231 +1,423 @@
-from PySide6.QtWidgets import (
-    QDialog, QVBoxLayout, QHBoxLayout, QLabel, 
-    QLineEdit, QComboBox, QSpinBox, QPushButton, QDialogButtonBox, QTabWidget, QWidget, QMessageBox
-)
-from PySide6.QtCore import Qt
-import uuid
+from enum import Enum, auto
+import traceback
+from datetime import datetime, timedelta
+import json
+from PySide6.QtCore import QObject, Signal, QTimer
+from pycaw.pycaw import AudioUtilities, IAudioEndpointVolume
+from comtypes import CLSCTX_ALL
+import math
+from app.backend.paths import SCHEDULER_FILE, TRANSITION_CONFIG_FILE
 
-class AddScheduledBlockDialog(QDialog):
-    """Unified dialog allowing users to pick from active sprint tasks or schedule manual events."""
+# Use winotify for modern Windows 10/11 Toast Notifications
+try:
+    from winotify import Notification, audio
+    HAS_TOASTER = True
+except ImportError:
+    HAS_TOASTER = False
+
+
+class TransitionState(Enum):
+    IDLE = auto()
+    FADING = auto()
+    TRANSITION_DIALOG = auto()
+    SESSION_ACTIVE = auto()
+
+
+class WindowsVolumeManager(QObject):
+    """Manages system master volume using relative step-wise plateaus."""
     
-    def __init__(self, sprint_tasks: list = None, existing_sessions: list = None, default_category: str = "academics", default_start_mins: int = 360, default_duration_min: int = 60, parent=None):
+    volume_restored = Signal()
+
+    def __init__(self, parent=None):
         super().__init__(parent)
-        self.setWindowTitle("Plan Session")
-        self.setMinimumWidth(420)
-        self.setStyleSheet("""
-            QDialog {
-                background-color: #141417;
-                color: #ffffff;
-                font-family: 'Segoe UI';
-            }
-            QLabel {
-                color: #a0a0b0;
-                font-size: 12px;
-            }
-            QLineEdit, QComboBox, QSpinBox {
-                background-color: #1e1e24;
-                border: 1px solid #2d2d38;
-                border-radius: 6px;
-                padding: 6px 10px;
-                color: #ffffff;
-                font-size: 13px;
-            }
-            QTabWidget::pane {
-                border: 1px solid #2d2d38;
-                background-color: #141417;
-                border-radius: 6px;
-            }
-            QTabBar::tab {
-                background-color: #1e1e24;
-                color: #a0a0b0;
-                padding: 8px 16px;
-                border-top-left-radius: 6px;
-                border-top-right-radius: 6px;
-                margin-right: 2px;
-            }
-            QTabBar::tab:selected {
-                background-color: #4F8EF7;
-                color: white;
-                font-weight: bold;
-            }
-        """)
+        self.step_timer = QTimer(self)
+        self.step_timer.timeout.connect(self._step_volume_plateau)
 
-        self.sprint_tasks = sprint_tasks or []
-        self.existing_sessions = existing_sessions or []
-        self.result_data = None
-        self.default_category = default_category
-        self.default_start_mins = default_start_mins
-        self.default_duration_min = default_duration_min
+        self._original_volume = 1.0
+        self._target_vol = 0.0
+        self._current_step_index = 0
+        self._plateau_steps = []
+        self._is_fading = False
 
-        self._init_ui()
+        self._init_audio_interface()
 
-    def _init_ui(self):
-        layout = QVBoxLayout(self)
-        layout.setSpacing(16)
-        layout.setContentsMargins(20, 20, 20, 20)
-
-        # Tab widget to switch between Sprint Task binding and Manual Event
-        self.tabs = QTabWidget()
-        
-        # Tab 1: Sprint Task Picker
-        self.sprint_tab = QWidget()
-        self._init_sprint_tab_ui()
-        self.tabs.addTab(self.sprint_tab, "Sprint Task")
-
-        # Tab 2: Manual Event Form
-        self.manual_tab = QWidget()
-        self._init_manual_tab_ui()
-        self.tabs.addTab(self.manual_tab, "Manual Event")
-
-        layout.addWidget(self.tabs)
-
-        # Time & Duration Row (Shared across tabs)
-        time_layout = QHBoxLayout()
-        time_layout.setSpacing(12)
-
-        start_h = self.default_start_mins // 60
-        start_m = self.default_start_mins % 60
-        
-        start_box = QVBoxLayout()
-        start_box.setSpacing(6)
-        start_box.addWidget(QLabel("Start Time (HH:MM)"))
-        self.start_input = QLineEdit(f"{start_h:02d}:{start_m:02d}")
-        start_box.addWidget(self.start_input)
-        time_layout.addLayout(start_box)
-
-        dur_box = QVBoxLayout()
-        dur_box.setSpacing(6)
-        dur_box.addWidget(QLabel("Duration (mins)"))
-        self.duration_spin = QSpinBox()
-        self.duration_spin.setRange(1, 480)
-        self.duration_spin.setSingleStep(1)
-        self.duration_spin.setValue(self.default_duration_min)
-        dur_box.addWidget(self.duration_spin)
-        time_layout.addLayout(dur_box)
-
-        layout.addLayout(time_layout)
-
-        # Dialog Buttons
-        button_box = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
-        button_box.accepted.connect(self._on_accept)
-        button_box.rejected.connect(self.reject)
-        
-        for btn in button_box.buttons():
-            btn.setStyleSheet("""
-                QPushButton {
-                    background-color: #272730;
-                    border: none;
-                    border-radius: 4px;
-                    padding: 6px 16px;
-                    color: white;
-                    font-weight: 600;
-                }
-                QPushButton:hover {
-                    background-color: #4F8EF7;
-                }
-            """)
-        
-        layout.addWidget(button_box)
-
-    def _init_sprint_tab_ui(self):
-        layout = QVBoxLayout(self.sprint_tab)
-        layout.setContentsMargins(16, 16, 16, 16)
-        layout.setSpacing(10)
-
-        layout.addWidget(QLabel("Select active task from Sprint Manager:"))
-        self.task_combo = QComboBox()
-        
-        if self.sprint_tasks:
-            for task in self.sprint_tasks:
-                self.task_combo.addItem(task.get("title", "Untitled Task"), task)
-        else:
-            self.task_combo.addItem("No active sprint tasks found", None)
-            self.task_combo.setEnabled(False)
-            
-        layout.addWidget(self.task_combo)
-        layout.addStretch()
-
-    def _init_manual_tab_ui(self):
-        layout = QVBoxLayout(self.manual_tab)
-        layout.setContentsMargins(16, 16, 16, 16)
-        layout.setSpacing(10)
-
-        layout.addWidget(QLabel("Session Title"))
-        self.title_input = QLineEdit()
-        self.title_input.setPlaceholderText("e.g., Deep Work Block")
-        layout.addWidget(self.title_input)
-
-        layout.addWidget(QLabel("Category"))
-        self.category_combo = QComboBox()
-        self.category_combo.addItems([
-            "Academics", "Physics", "Math", "Chemistry", 
-            "Coding", "Reading", "Admin", "Health", "Buffer"
-        ])
-        idx = self.category_combo.findText(self.default_category, Qt.MatchFlag.MatchFixedString)
-        if idx >= 0:
-            self.category_combo.setCurrentIndex(idx)
-        layout.addWidget(self.category_combo)
-        layout.addStretch()
-
-    def _check_overlap(self, new_start_mins: int, new_duration: int) -> bool:
-        """Validates if the new block overlaps with any already scheduled session."""
-        new_end_mins = new_start_mins + new_duration
-        for session in self.existing_sessions:
-            start_str = session.get("start_time", "09:00")
-            try:
-                parts = start_str.split(":")
-                exist_start_mins = int(parts[0]) * 60 + int(parts[1])
-            except (ValueError, IndexError):
-                exist_start_mins = 540
-
-            exist_duration = session.get("planned_duration_min", 60)
-            exist_end_mins = exist_start_mins + exist_duration
-
-            # Overlap condition check
-            if new_start_mins < exist_end_mins and new_end_mins > exist_start_mins:
-                return True
-        return False
-
-    def _on_accept(self):
-        start_str = self.start_input.text().strip()
+    def _init_audio_interface(self):
         try:
-            parts = start_str.split(":")
-            start_mins = int(parts[0]) * 60 + int(parts[1])
-        except (ValueError, IndexError):
-            start_mins = 540
+            devices = AudioUtilities.GetSpeakers()
+            interface = devices.Activate(IAudioEndpointVolume._iid_, CLSCTX_ALL, None)
+            self.volume_interface = interface.QueryInterface(IAudioEndpointVolume)
+        except Exception:
+            self.volume_interface = None
 
-        duration = self.duration_spin.value()
+    def get_current_volume(self) -> float:
+        if not self.volume_interface:
+            return 1.0
+        try:
+            return self.volume_interface.GetMasterVolumeLevelScalar()
+        except Exception:
+            return 1.0
 
-        # Check for collision/overlap before accepting
-        if self._check_overlap(start_mins, duration):
-            QMessageBox.warning(self, "Scheduling Conflict", "This time slot collides or overlaps with an existing session. Please choose a different time or duration.")
+    def start_fade(self, duration_sec: int, target_vol: float = 0.0):
+        if not self.volume_interface:
             return
 
-        # Check active tab to determine source data
-        if self.tabs.currentIndex() == 0 and self.sprint_tasks and self.task_combo.currentData():
-            selected_task = self.task_combo.currentData()
-            title = selected_task.get("title", "Sprint Session")
-            category = selected_task.get("category", "academics").lower()
-            task_id = selected_task.get("task_id")
-        else:
-            title = self.title_input.text().strip() or "Study Session"
-            category = self.category_combo.currentText().lower()
-            task_id = None
+        try:
+            self._original_volume = self.get_current_volume()
+            self._target_vol = max(0.0, min(1.0, target_vol))
+            
+            relative_percentages = [1.0, 0.75, 0.50, 0.25, 0.10, 0.0]
+            scaled_steps = [self._original_volume * p for p in relative_percentages]
+            
+            filtered_steps = []
+            for vol in scaled_steps:
+                if not filtered_steps or abs(vol - filtered_steps[-1]) > 0.01:
+                    if vol >= self._target_vol:
+                        filtered_steps.append(vol)
+                        
+            if not filtered_steps or filtered_steps[-1] != self._target_vol:
+                filtered_steps.append(self._target_vol)
+                
+            self._plateau_steps = filtered_steps
+            self._current_step_index = 0
+            self._is_fading = True
 
-        self.result_data = {
-            "quest_id": str(uuid.uuid4()),
-            "task_id": task_id,
-            "title": title,
-            "category": category,
-            "start_time": start_str if ":" in start_str else "09:00",
-            "planned_duration_min": duration,
-            "objectives": [
-                "Review core prerequisite notes",
-                "Execute primary problem set / workflow",
-                "Verify final output & log progress"
-            ]
-        }
-        self.accept()
+            num_intervals = len(self._plateau_steps)
+            interval_ms = max(5000, int((duration_sec * 1000) / num_intervals))
 
-    def get_session_data(self) -> dict:
-        return self.result_data
+            self.step_timer.start(interval_ms)
+        except Exception as e:
+            print(f"Error starting step-wise volume descent: {e}")
+
+    def _step_volume_plateau(self):
+        if not self.volume_interface or not self._is_fading:
+            self.step_timer.stop()
+            return
+
+        if self._current_step_index < len(self._plateau_steps):
+            next_vol = self._plateau_steps[self._current_step_index]
+            self._current_step_index += 1
+            try:
+                self.volume_interface.SetMasterVolumeLevelScalar(next_vol, None)
+            except Exception:
+                pass
+        
+        if self._current_step_index >= len(self._plateau_steps):
+            self._is_fading = False
+            self.step_timer.stop()
+
+    def cancel_fade(self):
+        if self.step_timer.isActive():
+            self.step_timer.stop()
+        self._is_fading = False
+
+    def finish_at_volume(self, target_volume: float):
+        self.cancel_fade()
+        if not self.volume_interface:
+            return
+        try:
+            clamped_vol = max(0.0, min(1.0, target_volume))
+            self.volume_interface.SetMasterVolumeLevelScalar(clamped_vol, None)
+        except Exception as e:
+            print(f"Error finishing fade at volume {target_volume}: {e}")
+
+    def restore_volume(self):
+        self.cancel_fade()
+        if not self.volume_interface:
+            return
+        try:
+            self.volume_interface.SetMasterVolumeLevelScalar(self._original_volume, None)
+            self.volume_restored.emit()
+        except Exception as e:
+            print(f"Error restoring volume: {e}")
+
+
+class AutomatedTransitionMonitor:
+    """Watches scheduler.json and handles notifications, volume fading, and dialog popups."""
+    def __init__(self, transition_controller):
+        self.transition_controller = transition_controller
+        self.warned_sessions = set()
+        self.vol_warned_sessions = set()
+        self.dialog_warned_sessions = set()
+        self.faded_sessions = set()
+        self.triggered_dialog_sessions = set()
+
+        self.pending_dialog_session_id = None
+        self.pending_dialog_session = None
+
+        self.dialog_timer = QTimer()
+        self.dialog_timer.setSingleShot(True)
+        self.dialog_timer.timeout.connect(self._on_pending_dialog_timeout)
+
+        self.timer = QTimer()
+        self.timer.setInterval(30000)
+        self.timer.timeout.connect(self.check_upcoming_sessions)
+        self.timer.start()
+
+    def clear_pending_dialog(self):
+        if self.dialog_timer.isActive():
+            self.dialog_timer.stop()
+        self.pending_dialog_session_id = None
+        self.pending_dialog_session = None
+
+    def _schedule_pending_dialog(self, session: dict, fade_start_offset_min: int, countdown_sec: int):
+        self.clear_pending_dialog()
+        session_id = session.get("quest_id") or session.get("title")
+        delay_sec = (fade_start_offset_min * 60) - countdown_sec
+        if delay_sec < 0:
+            delay_sec = 0
+
+        self.pending_dialog_session_id = session_id
+        self.pending_dialog_session = session
+        self.dialog_timer.start(int(delay_sec * 1000))
+
+    def _on_pending_dialog_timeout(self):
+        try:
+            if self.transition_controller.state != TransitionState.FADING:
+                self.clear_pending_dialog()
+                return
+
+            current_session = self.transition_controller.session_data
+            current_session_id = current_session.get("quest_id") or current_session.get("title")
+
+            if current_session_id != self.pending_dialog_session_id:
+                self.clear_pending_dialog()
+                return
+
+            session = self.pending_dialog_session
+            session_id = self.pending_dialog_session_id
+            self.clear_pending_dialog()
+
+            if session and session_id:
+                if self.transition_controller.trigger_dialog_popup(session):
+                    self.triggered_dialog_sessions.add(session_id)
+        except Exception as e:
+            print(f"Error in pending dialog timeout: {e}")
+            self.clear_pending_dialog()
+
+    def send_windows_notification(self, title: str, message: str):
+        if HAS_TOASTER:
+            try:
+                toast = Notification(
+                    app_id="StudyFlow",
+                    title=title,
+                    msg=message,
+                    duration="short",
+                    icon=r"C:\Users\nelgi\AppData\Local\StudyFlowV1.0\logo.ico"  # Must be an absolute path to a .ico file
+                )
+                toast.show()
+            except Exception as e:
+                print(f"Failed to trigger toast notification: {e}")
+
+    def check_upcoming_sessions(self):
+        if not SCHEDULER_FILE.exists() or not TRANSITION_CONFIG_FILE.exists():
+            return
+
+        try:
+            schedule_data = json.loads(SCHEDULER_FILE.read_text(encoding="utf-8"))
+            config_data = json.loads(TRANSITION_CONFIG_FILE.read_text(encoding="utf-8"))
+            
+            fade_start_offset_min = config_data.get("fade_start_offset_min", 7)
+            fade_sec = config_data.get("fade_duration_sec", 300)
+            countdown_sec = config_data.get("countdown_sec", 120)
+            
+            fade_lead_time = fade_start_offset_min * 60
+            warning_lead_time = 10 * 60  
+            vol_warning_lead_time = 7 * 60   
+            dialog_warning_lead_time = 140   
+            
+            now = datetime.now()
+            sessions = schedule_data.get("sessions", [])
+
+            for session in sessions:
+                session_id = session.get("quest_id") or session.get("title")
+                time_str = session.get("start_time")
+                session_title = session.get("title", "Scheduled Session")
+                
+                if not time_str:
+                    continue
+
+                today_date = now.date()
+                parsed_time = datetime.strptime(time_str, "%H:%M").time()
+                session_start = datetime.combine(today_date, parsed_time)
+                
+                warning_trigger_time = session_start - timedelta(seconds=warning_lead_time)
+                vol_warning_trigger_time = session_start - timedelta(seconds=vol_warning_lead_time)
+                dialog_warning_trigger_time = session_start - timedelta(seconds=dialog_warning_lead_time)
+                fade_trigger_time = session_start - timedelta(seconds=fade_lead_time)
+                dialog_trigger_time = session_start - timedelta(seconds=countdown_sec)
+
+                # 1. Trigger 10-Minute Warning Notification
+                if warning_trigger_time <= now < vol_warning_trigger_time and session_id not in self.warned_sessions:
+                    self.warned_sessions.add(session_id)
+                    self.send_windows_notification(
+                        "Upcoming Session Warning", 
+                        f"'{session_title}' starts in 10 minutes. Get ready to transition!"
+                    )
+
+                # 2. Trigger T - 7 Min Volume Warning Notification
+                if vol_warning_trigger_time <= now < dialog_warning_trigger_time and session_id not in self.vol_warned_sessions:
+                    self.vol_warned_sessions.add(session_id)
+                    self.send_windows_notification(
+                        "Volume Reducing Notice", 
+                        f"Volume will be reducing from here onwards for '{session_title}'."
+                    )
+
+                # 3. Trigger T - 2:20 Dialog Warning Notification
+                if dialog_warning_trigger_time <= now < fade_trigger_time and session_id not in self.dialog_warned_sessions:
+                    self.dialog_warned_sessions.add(session_id)
+                    self.send_windows_notification(
+                        "Transition Approaching", 
+                        f"The transition dialog box is about to appear for '{session_title}'."
+                    )
+
+                # 4. Trigger Step-Wise Volume Fade at T - offset
+                if fade_trigger_time <= now < dialog_trigger_time and session_id not in self.faded_sessions:
+                    if self.transition_controller.state == TransitionState.IDLE:
+                        if self.transition_controller.start_volume_fade_only(session, fade_sec=fade_sec):
+                            self.faded_sessions.add(session_id)
+                            self._schedule_pending_dialog(session, fade_start_offset_min, countdown_sec)
+
+                # 5. Trigger Transition Dialog at T - countdown_sec (Fallback / Direct check)
+                if dialog_trigger_time <= now < session_start and session_id not in self.triggered_dialog_sessions:
+                    state = self.transition_controller.state
+                    if state == TransitionState.IDLE:
+                        if self.transition_controller.start_transition_sequence(session, fade_sec=fade_sec, countdown_sec=countdown_sec):
+                            self.triggered_dialog_sessions.add(session_id)
+                            break
+                    elif state == TransitionState.FADING:
+                        if self.transition_controller.trigger_dialog_popup(session):
+                            self.triggered_dialog_sessions.add(session_id)
+                            break
+                    elif state == TransitionState.TRANSITION_DIALOG:
+                        pass
+                    elif state == TransitionState.SESSION_ACTIVE:
+                        pass
+
+        except Exception as e:
+            print(f"Error checking automated scheduler triggers: {e}")
+
+
+class TransitionController(QObject):
+    transition_started = Signal(dict)
+    show_dialog_requested = Signal(dict)
+    transition_cancelled = Signal()
+    transition_completed = Signal(dict)
+    error_occurred = Signal(str)
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.state = TransitionState.IDLE
+        self.session_data = {}
+        
+        self.volume_manager = WindowsVolumeManager(self)
+        self.volume_manager.volume_restored.connect(lambda: print("Volume successfully restored."))
+
+        config = self._load_config()
+        self.fade_duration_sec = config.get("fade_duration_sec", 300)
+        self.countdown_sec = config.get("countdown_sec", 120)
+
+        self.auto_monitor = AutomatedTransitionMonitor(self)
+
+    def _load_config(self) -> dict:
+        if TRANSITION_CONFIG_FILE.exists():
+            try:
+                data = json.loads(TRANSITION_CONFIG_FILE.read_text(encoding="utf-8"))
+                if isinstance(data, dict):
+                    return data
+            except Exception:
+                pass
+        return {"fade_start_offset_min": 7, "fade_duration_sec": 300, "countdown_sec": 120}
+
+    def start_volume_fade_only(self, session_payload: dict, fade_sec: int = None) -> bool:
+        self.auto_monitor.clear_pending_dialog()
+        if self.state != TransitionState.IDLE:
+            return False
+        try:
+            config = self._load_config()
+            self.fade_duration_sec = fade_sec if fade_sec is not None else config.get("fade_duration_sec", 300)
+            
+            self.state = TransitionState.FADING
+            self.session_data = dict(session_payload)
+            self.transition_started.emit(self.session_data)
+
+            self.volume_manager.start_fade(duration_sec=self.fade_duration_sec, target_vol=0.0)
+            return True
+        except Exception as e:
+            traceback.print_exc()
+            self.cancel_transition()
+            return False
+
+    def trigger_dialog_popup(self, session_payload: dict = None) -> bool:
+        if self.state != TransitionState.FADING:
+            return False
+        try:
+            if session_payload:
+                self.session_data.update(session_payload)
+            
+            self.state = TransitionState.TRANSITION_DIALOG
+            self.show_dialog_requested.emit(self.session_data)
+            return True
+        except Exception as e:
+            traceback.print_exc()
+            return False
+
+    def start_transition_sequence(self, session_payload: dict, fade_sec: int = None, countdown_sec: int = None) -> bool:
+        self.auto_monitor.clear_pending_dialog()
+        if self.state != TransitionState.IDLE:
+            return False
+
+        try:
+            config = self._load_config()
+            self.fade_duration_sec = fade_sec if fade_sec is not None else config.get("fade_duration_sec", 300)
+            self.countdown_sec = countdown_sec if countdown_sec is not None else config.get("countdown_sec", 120)
+
+            self.state = TransitionState.FADING
+            self.session_data = dict(session_payload)
+
+            self.transition_started.emit(self.session_data)
+            self.volume_manager.start_fade(duration_sec=self.fade_duration_sec, target_vol=0.0)
+
+            self.state = TransitionState.TRANSITION_DIALOG
+            self.show_dialog_requested.emit(self.session_data)
+            return True
+
+        except Exception as e:
+            traceback.print_exc()
+            self.error_occurred.emit(str(e))
+            self.cancel_transition()
+            return False
+
+    def complete_transition(self, user_inputs: dict):
+        self.auto_monitor.clear_pending_dialog()
+        if self.state not in (TransitionState.FADING, TransitionState.TRANSITION_DIALOG):
+            return
+
+        try:
+            self.volume_manager.finish_at_volume(0.15)
+            self.state = TransitionState.SESSION_ACTIVE
+            
+            # Ensures the original title and session metadata are never overwritten
+            merged_data = dict(self.session_data)
+            merged_data.update(user_inputs)
+            self.session_data = merged_data
+            
+            self.transition_completed.emit(self.session_data)
+
+        except Exception as e:
+            traceback.print_exc()
+            self.error_occurred.emit(str(e))
+            self.cancel_transition()
+
+    def cancel_transition(self):
+        self.auto_monitor.clear_pending_dialog()
+        self.volume_manager.restore_volume()
+        self.state = TransitionState.IDLE
+        self.session_data = {}
+        self.transition_cancelled.emit()
+        
+    def reset_to_idle(self):
+        """Resets the transition state machine back to IDLE so future sessions can trigger transitions."""
+        self.auto_monitor.clear_pending_dialog()
+        self.volume_manager.cancel_fade()
+        self.state = TransitionState.IDLE
+        self.session_data = {}
