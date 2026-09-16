@@ -7,6 +7,7 @@ from pycaw.pycaw import AudioUtilities, IAudioEndpointVolume
 from comtypes import CLSCTX_ALL
 import math
 from app.backend.paths import SCHEDULER_FILE, TRANSITION_CONFIG_FILE
+from pathlib import Path
 
 # Use winotify for modern Windows 10/11 Toast Notifications
 try:
