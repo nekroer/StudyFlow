@@ -20,7 +20,6 @@ class TransitionState(Enum):
     IDLE = auto()
     FADING = auto()
     TRANSITION_DIALOG = auto()
-    SESSION_ACTIVE = auto()
 
 
 class WindowsVolumeManager(QObject):
@@ -241,8 +240,6 @@ class AutomatedTransitionMonitor:
                             break
                     elif state == TransitionState.TRANSITION_DIALOG:
                         pass
-                    elif state == TransitionState.SESSION_ACTIVE:
-                        pass
 
         except Exception as e:
             print(f"Error checking automated scheduler triggers: {e}")
@@ -342,7 +339,6 @@ class TransitionController(QObject):
 
         try:
             self.volume_manager.finish_at_volume(0.15)
-            self.state = TransitionState.SESSION_ACTIVE
             
             # Ensures the original title and session metadata are never overwritten
             merged_data = dict(self.session_data)
@@ -350,6 +346,8 @@ class TransitionController(QObject):
             self.session_data = merged_data
             
             self.transition_completed.emit(self.session_data)
+            self.state = TransitionState.IDLE
+            self.session_data = {}
 
         except Exception as e:
             traceback.print_exc()
