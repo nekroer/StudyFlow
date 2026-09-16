@@ -1,0 +1,59 @@
+[2026-07-26 09:17 AM - 09:17 AM] Task: Testing
+  • Details: None
+  • Planned: 00:35 | Spent: 00:04 (Completed / Stopped Early)
+------------------------------------------------------------
+[2026-07-26 09:36 AM - 09:36 AM] Task: t1
+  • Details: None
+  • Prep Time: 02:07 (7s overtime)
+  • Planned: 00:30 | Spent: 00:03 (Completed / Stopped Early)
+------------------------------------------------------------
+[2026-07-26 09:40 AM - 09:40 AM] Task: t2
+  • Details: None
+  • Prep Time: 00:02
+  • Planned: 60:00 | Spent: 00:02 (Completed / Stopped Early)
+------------------------------------------------------------
+[2026-07-27 06:49 AM - 06:50 AM] Task: testing
+  • Details: None
+  • Prep Time: 00:03
+  • Planned: 60:00 | Spent: 01:30 (Completed / Stopped Early)
+------------------------------------------------------------
+[2026-07-27 07:06 AM - 07:06 AM] Task: testing
+  • Details: None
+  • Prep Time: 00:03
+  • Planned: 25:00 | Spent: 00:05 (Completed / Stopped Early)
+------------------------------------------------------------
+[2026-07-27 07:07 AM - 07:07 AM] Task: testing
+  • Details: None
+  • Prep Time: 00:00
+  • Planned: 25:00 | Spent: 00:03 (Completed / Stopped Early)
+------------------------------------------------------------
+[2026-07-27 07:08 AM - 07:08 AM] Task: testing
+  • Details: None
+  • Prep Time: 00:01
+  • Planned: 25:00 | Spent: 00:25 (Completed / Stopped Early)
+------------------------------------------------------------
+[2026-07-27 06:29 PM - 06:31 PM] Task: testing
+  • Details: 25
+  • Prep Time: 00:06
+  • Planned: 06:36 | Spent: 01:33 (Completed / Stopped Early)
+------------------------------------------------------------
+[2026-07-27 06:39 PM] Task Completed: testing (URGENT)
+  • Total Time Focused: 3 mins
+  • Sessions Logged: 4
+------------------------------------------------------------
+[2026-07-27 06:44 PM] Task Completed: testing1 (ADMIN)
+  • Total Time Focused: 0 mins
+  • Sessions Logged: 0
+------------------------------------------------------------
+[2026-07-28 10:17 PM] Task Completed: Prepare Script to interview on Saturday (DEADLINES)
+  • Total Time Focused: 0 mins
+  • Sessions Logged: 0
+------------------------------------------------------------
+[2026-07-30 12:16 AM] Task Completed: Computer Binary Files Program (URGENT)
+  • Total Time Focused: 0 mins
+  • Sessions Logged: 0
+------------------------------------------------------------
+[2026-07-30 12:16 AM] Task Completed: Take Folder and Physics Project Material to School (URGENT)
+  • Total Time Focused: 0 mins
+  • Sessions Logged: 0
+------------------------------------------------------------
