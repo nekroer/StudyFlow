@@ -153,7 +153,7 @@ class AutomatedTransitionMonitor:
                     title=title,
                     msg=message,
                     duration="short",
-                    icon=r"C:\Users\nelgi\AppData\Local\StudyFlowV1.0\logo.ico"  # Must be an absolute path to a .ico file
+                    icon = str(Path(__file__).resolve().parents[2] / "assets" / "icons" / "logo.ico")  # Must be an absolute path to a .ico file
                 )
                 toast.show()
             except Exception as e:
