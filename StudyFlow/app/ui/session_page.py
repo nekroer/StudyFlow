@@ -852,9 +852,9 @@ class SessionPage(QWidget):
             self.reset_timer()
             return
 
-        # Fix: Clear or deactivate session state immediately to prevent duplicate triggers
         session_data_copy = dict(self.active_session_data)
         self.active_session_data = {}  # Mark session as no longer active
+        self.is_session_active = False  # Ensure session state is marked inactive immediately
         
         end_time = datetime.now()
         start_time = session_data_copy["start_time"]

@@ -399,12 +399,13 @@ class SchedulerPage(QWidget):
         if session_to_start:
             task_name = session_to_start.get("title", "Study Session")
             
-            # Extract quest_id from the session dictionary
+            # Extract quest_id and task_id separately to maintain identity boundaries
             q_id = session_to_start.get("quest_id", self.selected_session_id)
+            t_id = session_to_start.get("task_id", "")
             
             details = {
-                "quest_id": q_id,       # <--- Added this
-                "task_id": q_id,        # <--- Added this as a fallback alias
+                "quest_id": q_id,
+                "task_id": t_id,
                 "duration": session_to_start.get("planned_duration_min", 60),
                 "category": session_to_start.get("category", "academics"),
                 "objectives": session_to_start.get("objectives", [])

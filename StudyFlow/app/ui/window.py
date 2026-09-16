@@ -149,10 +149,13 @@ class MainWindow(QMainWindow):
             25
         )
         
-        task_id = details.get("quest_id") or details.get("task_id", "")
+        # Obtain actual Sprint task ID separately from quest_id
+        task_id = details.get("task_id", "")
+        quest_id = details.get("quest_id", "")
         
         session_payload = {
             "task_id": task_id,
+            "quest_id": quest_id,
             "task_name": task_name,
             "title": task_name,
             "duration_mins": duration,
