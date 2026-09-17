@@ -626,7 +626,22 @@ class SessionPage(QWidget):
 
     def load_task(self, task_id: str = "", title: str = "", details: str = "", target_minutes: int = 60):
         self.sprint_task_id = str(task_id) if task_id else ""
-        self.prefilled_task_name = str(title) if title else ""
+        
+        # If title is missing, empty, or a generic placeholder, look it up directly from SprintManager using task_id
+        if (not title or title.strip() == "" or title.lower() == "focus session") and self.sprint_task_id:
+            try:
+                mgr = SprintManager()
+                all_tasks = getattr(mgr, "tasks", [])
+                if not all_tasks and hasattr(mgr, "load_tasks"):
+                    all_tasks = mgr.load_tasks()
+                for t in all_tasks:
+                    if str(t.get("id")) == str(self.sprint_task_id):
+                        title = t.get("title", "")
+                        break
+            except Exception as e:
+                print(f"Error fetching task title from sprint manager: {e}")
+
+        self.prefilled_task_name = str(title) if title else "Focus Session"
         self.prefilled_task_details = str(details) if details else ""
 
         target_secs = target_minutes * 60 if isinstance(target_minutes, int) and target_minutes > 0 else 3600
@@ -684,19 +699,24 @@ class SessionPage(QWidget):
         dialog.exec()
 
     def start_timer(self):
-        # If active_session_data was already populated by transition mode, bypass the manual start/prep dialogs
+        # If active_session_data was already populated by transition or planned session mode, 
+        # ensure we honor its name/details and skip the manual wizard.
         if self.active_session_data and self.is_session_active:
             return
 
         if self.active_session_data and not self.is_session_active:
-            # Transition mode already populated data, just run the prep dialog and launch directly
-            prep_dialog = PrepDialog(self.active_session_data.get("task_name", "Focus Session"), self)
+            # Planned session data is already loaded; just run the prep dialog and launch directly
+            task_title = self.active_session_data.get("task_name", "Focus Session")
+            prep_dialog = PrepDialog(task_title, self)
             if prep_dialog.exec() == QDialog.DialogCode.Accepted:
                 self._session_end_emitted = False
                 prep_duration_sec = prep_dialog.get_prep_duration_sec()
                 self.initial_target_seconds = self.remaining_seconds
                 
+                # Keep the existing task name & details intact instead of resetting them
                 self.active_session_data.update({
+                    "task_name": task_title,
+                    "task_details": self.active_session_data.get("task_details", "Auto Planned Session"),
                     "prep_duration_sec": prep_duration_sec,
                     "start_time": datetime.now(),
                     "planned_duration_sec": self.initial_target_seconds,
@@ -708,7 +728,7 @@ class SessionPage(QWidget):
 
                 self.is_session_active = True
                 self.circular_timer.setEnabled(False)
-                self.task_status_label.setText(f"Active Task: {self.active_session_data.get('task_name', 'Focus Session')}")
+                self.task_status_label.setText(f"Active Task: {task_title}")
                 
                 self.timer.start()
                 self._update_pause_button_style()
@@ -716,7 +736,7 @@ class SessionPage(QWidget):
                 self._update_floating_window_display()
             return
 
-        # Fallback to standard manual flow if started manually
+        # Fallback to standard manual flow if started manually without a pre-loaded task
         if not self.is_session_active:
             dialog = StartTaskDialog(self.prefilled_task_name, self.prefilled_task_details, self)
             if dialog.exec() == QDialog.DialogCode.Accepted:
@@ -792,32 +812,39 @@ class SessionPage(QWidget):
                     pass
 
     def reset_timer(self):
-        self.timer.stop()
+        """Stops active timers, clears cached transition session state, and restores clean defaults."""
+        if self.timer.isActive():
+            self.timer.stop()
+
         self.is_session_active = False
         self.active_session_data = None
-        self._session_end_emitted = False
-        
-        if self.floating_window:
-            self.floating_window.close()
+        self.sprint_task_id = ""
+        self.prefilled_task_name = ""
+        self.prefilled_task_details = ""
 
-        if not self.prefilled_task_name:
-            self.default_seconds = 3600
-        
-        self.initial_target_seconds = self.default_seconds
+        # Revert durations back to default 60 minutes
+        self.default_seconds = 3600
+        self.remaining_seconds = 3600
+        self.initial_target_seconds = 3600
 
+        # Reset UI timer widget and enable interaction
+        self.circular_timer.set_duration(3600)
+        self.sync_timer(3600)
+        self.circular_timer.setEnabled(True)
+
+        # Reset labels
+        self.task_status_label.setText("Set time with needle and press Start")
         self.goal_display_label.setText("<b>Goal:</b> None")
         self.thought_display_label.setText("<b>Thoughts:</b> None")
         self.distraction_display_label.setText("<b>Distractions to Avoid:</b> None")
 
-        self.circular_timer.setEnabled(True)
-        self.sync_timer(self.default_seconds)
-        self._update_pause_button_style()
-        self._update_button_states()
+        if self.floating_window:
+            self.floating_window.close()
+            self.floating_window = None
+            self.btn_popout.setText("🗗 Popout Floating Timer")
 
-        if self.prefilled_task_name:
-            self.task_status_label.setText(f"Task Ready: {self.prefilled_task_name}")
-        else:
-            self.task_status_label.setText("Set time with needle and press Start")
+        self._update_button_states()
+        self._update_floating_window_display()
 
     def tick(self):
         if self.remaining_seconds > 0:
