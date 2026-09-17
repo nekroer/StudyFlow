@@ -574,47 +574,57 @@ class SessionPage(QWidget):
             if self.is_session_active and self.timer.isActive() and not self.floating_window:
                 self.toggle_floating_timer()
 
-    def load_planned_task_and_start(self, task_id: str, title: str, duration_mins: int):
-        self.load_task(
-            task_id=task_id,
-            title=title,
-            details="Auto Planned Session",
-            target_minutes=duration_mins
-        )
-        self.start_planned_session(task_id, title, duration_mins)
-
-    def start_planned_session(self, task_id="", title="", details="", duration_minutes=60, quest_id=""):
-        """Authoritatively initializes and starts a scheduled session from the scheduler."""
+    def start_planned_session(
+        self,
+        task_id: str,
+        title: str,
+        duration_mins: int,
+        transition_data: dict = None
+    ):
+        """Authoritatively initializes and starts a scheduled session from the scheduler preserving original transition compatibility."""
         self.sprint_task_id = str(task_id) if task_id else ""
         self.prefilled_task_name = str(title) if title else "Scheduled Session"
-        self.prefilled_task_details = str(details) if details else ""
+        self.prefilled_task_details = "Auto Planned Session"
         
-        dur_sec = int(duration_minutes) * 60 if duration_minutes else 3600
+        dur_sec = int(duration_mins) * 60 if duration_mins else 3600
         self.remaining_seconds = dur_sec
         self.initial_target_seconds = dur_sec
         self.is_session_active = False
-        
+
         self.active_session_data = {
             "task_id": self.sprint_task_id,
-            "title": self.prefilled_task_name,
-            "details": self.prefilled_task_details,
-            "duration": duration_minutes,
-            "quest_id": quest_id
+            "task_name": self.prefilled_task_name,
+            "task_details": self.prefilled_task_details,
+            "duration": duration_mins,
+            "transition_data": transition_data or {}
         }
 
-        # Update your UI labels/inputs safely if they exist in your original UI
-        if hasattr(self, "title_label") and self.prefilled_task_name:
-            self.title_label.setText(self.prefilled_task_name)
-        if hasattr(self, "task_input") and self.prefilled_task_name:
-            self.task_input.setText(self.prefilled_task_name)
+        self.sync_timer(dur_sec)
 
-        # Update the circular timer duration and remaining time
-        if hasattr(self, "circular_timer"):
-            self.circular_timer.set_duration(self.initial_target_seconds)
-            self.circular_timer.update_time(self.remaining_seconds)
+        # Run preparation phase and start timer automatically for scheduled sessions
+        prep_dialog = PrepDialog(self.prefilled_task_name, self)
+        if prep_dialog.exec() == QDialog.DialogCode.Accepted:
+            self._session_end_emitted = False
+            prep_duration_sec = prep_dialog.get_prep_duration_sec()
+            
+            self.active_session_data.update({
+                "prep_duration_sec": prep_duration_sec,
+                "start_time": datetime.now(),
+                "planned_duration_sec": self.initial_target_seconds,
+            })
 
-        # Start the timer immediately for scheduled sessions
-        self.start_timer()
+            self.goal_display_label.setText("<b>Goal:</b> Scheduled Session")
+            self.thought_display_label.setText("<b>Thoughts:</b> None")
+            self.distraction_display_label.setText("<b>Distractions to Avoid:</b> None")
+
+            self.is_session_active = True
+            self.circular_timer.setEnabled(False)
+            self.task_status_label.setText(f"Active Task: {self.prefilled_task_name}")
+            
+            self.timer.start()
+            self._update_pause_button_style()
+            self._update_button_states()
+            self._update_floating_window_display()
 
     def sync_timer(self, seconds: int):
         self.remaining_seconds = max(0, min(self.default_seconds, seconds))
@@ -624,40 +634,6 @@ class SessionPage(QWidget):
 
     def load_task(self, task_id: str = "", title: str = "", details: str = "", target_minutes: int = 60):
         self.sprint_task_id = str(task_id) if task_id else ""
-        
-        # Immediately query SprintManager using task_id to fetch the correct title and duration
-        if self.sprint_task_id:
-            try:
-                mgr = SprintManager()
-                items = []
-                for attr in ["sprints", "tasks", "list_sprints", "get_sprints"]:
-                    val = getattr(mgr, attr, None)
-                    if callable(val):
-                        try: items = val(); break
-                        except: pass
-                    elif isinstance(val, list):
-                        items = val; break
-                
-                if not items:
-                    for loader in ["load_sprints", "load_tasks", "get_tasks"]:
-                        load_fn = getattr(mgr, loader, None)
-                        if callable(load_fn):
-                            try: items = load_fn(); break
-                            except: pass
-
-                for item in items:
-                    if isinstance(item, dict) and str(item.get("id")) == str(self.sprint_task_id):
-                        fetched_title = item.get("title", "") or item.get("name", "")
-                        if fetched_title:
-                            title = fetched_title
-                        
-                        dur = item.get("duration") or item.get("duration_mins") or item.get("minutes")
-                        if dur and isinstance(dur, (int, float)):
-                            target_minutes = int(dur)
-                        break
-            except Exception as e:
-                print(f"Error looking up task from SprintManager: {e}")
-
         if not title or title.strip() == "" or title.lower() == "focus session":
             title = "Focus Session"
 
@@ -670,14 +646,9 @@ class SessionPage(QWidget):
         self.sync_timer(target_secs)
         self.initial_target_seconds = target_secs
 
-        if hasattr(self, "active_session_data") and self.active_session_data:
-            self.goal_display_label.setText(f"<b>Goal:</b> {self.active_session_data.get('goal', 'None')}")
-            self.thought_display_label.setText(f"<b>Thoughts:</b> {self.active_session_data.get('thought', 'None')}")
-            self.distraction_display_label.setText(f"<b>Distractions to Avoid:</b> {self.active_session_data.get('distraction', 'None')}")
-        else:
-            self.goal_display_label.setText("<b>Goal:</b> Focus Session")
-            self.thought_display_label.setText("<b>Thoughts:</b> None")
-            self.distraction_display_label.setText("<b>Distractions to Avoid:</b> None")
+        self.goal_display_label.setText("<b>Goal:</b> Focus Session")
+        self.thought_display_label.setText("<b>Thoughts:</b> None")
+        self.distraction_display_label.setText("<b>Distractions to Avoid:</b> None")
 
         if self.prefilled_task_name:
             self.task_status_label.setText(f"Task Ready: {self.prefilled_task_name}")
@@ -719,44 +690,6 @@ class SessionPage(QWidget):
         dialog.exec()
 
     def start_timer(self):
-        # If active_session_data was already populated by transition or planned session mode, 
-        # ensure we honor its name/details and skip the manual wizard.
-        if self.active_session_data and self.is_session_active:
-            return
-
-        if self.active_session_data and not self.is_session_active:
-            # Planned session data is already loaded; just run the prep dialog and launch directly
-            task_title = self.active_session_data.get("task_name", "Focus Session")
-            prep_dialog = PrepDialog(task_title, self)
-            if prep_dialog.exec() == QDialog.DialogCode.Accepted:
-                self._session_end_emitted = False
-                prep_duration_sec = prep_dialog.get_prep_duration_sec()
-                self.initial_target_seconds = self.remaining_seconds
-                
-                # Keep the existing task name & details intact instead of resetting them
-                self.active_session_data.update({
-                    "task_name": task_title,
-                    "task_details": self.active_session_data.get("task_details", "Auto Planned Session"),
-                    "prep_duration_sec": prep_duration_sec,
-                    "start_time": datetime.now(),
-                    "planned_duration_sec": self.initial_target_seconds,
-                })
-
-                self.goal_display_label.setText(f"<b>Goal:</b> {self.active_session_data.get('goal', 'None')}")
-                self.thought_display_label.setText(f"<b>Thoughts:</b> {self.active_session_data.get('thought', 'None')}")
-                self.distraction_display_label.setText(f"<b>Distractions to Avoid:</b> {self.active_session_data.get('distraction', 'None')}")
-
-                self.is_session_active = True
-                self.circular_timer.setEnabled(False)
-                self.task_status_label.setText(f"Active Task: {task_title}")
-                
-                self.timer.start()
-                self._update_pause_button_style()
-                self._update_button_states()
-                self._update_floating_window_display()
-            return
-
-        # Fallback to standard manual flow if started manually without a pre-loaded task
         if not self.is_session_active:
             dialog = StartTaskDialog(self.prefilled_task_name, self.prefilled_task_details, self)
             if dialog.exec() == QDialog.DialogCode.Accepted:
@@ -836,11 +769,17 @@ class SessionPage(QWidget):
         if hasattr(self, "timer"):
             self.timer.stop()
             
+        if self.floating_window:
+            self.floating_window.close()
+            self.floating_window = None
+            self.btn_popout.setText("🗗 Popout Floating Timer")
+            
         self.is_session_active = False
         self.active_session_data = {}
         self.sprint_task_id = ""
         self.prefilled_task_name = ""
         self.prefilled_task_details = ""
+        self._session_end_emitted = False
         
         # Reset time tracking variables back to 60 minutes (3600 seconds)
         self.remaining_seconds = 3600
@@ -903,9 +842,9 @@ class SessionPage(QWidget):
         self.is_session_active = False  # Ensure session state is marked inactive immediately
         
         end_time = datetime.now()
-        start_time = session_data_copy["start_time"]
-        prep_sec = session_data_copy["prep_duration_sec"]
-        planned_sec = session_data_copy["planned_duration_sec"]
+        start_time = session_data_copy.get("start_time", datetime.now())
+        prep_sec = session_data_copy.get("prep_duration_sec", 0)
+        planned_sec = session_data_copy.get("planned_duration_sec", self.initial_target_seconds)
         actual_sec = planned_sec - self.remaining_seconds
         actual_min = math.ceil(actual_sec / 60) if actual_sec > 0 else 0
 
@@ -923,8 +862,8 @@ class SessionPage(QWidget):
         session_record = {
             "start_time": start_time.strftime('%Y-%m-%d %I:%M %p'),
             "end_time": end_time.strftime('%I:%M %p'),
-            "task_name": session_data_copy['task_name'],
-            "task_details": session_data_copy['task_details'] or 'None',
+            "task_name": session_data_copy.get('task_name', 'Focus Session'),
+            "task_details": session_data_copy.get('task_details', 'None') or 'None',
             "goal": session_data_copy.get('goal', 'None'),
             "thought": session_data_copy.get('thought', 'None'),
             "distraction": session_data_copy.get('distraction', 'None'),
@@ -951,11 +890,11 @@ class SessionPage(QWidget):
         with open(TASKS_DONE_FILE, "w", encoding="utf-8") as f:
             json.dump(data, f, indent=4)
 
+        self._trigger_completion_badge(actual_min)
+
         if not self._session_end_emitted:
             self._session_end_emitted = True
             self.session_ended.emit(actual_min)
-
-        self._trigger_completion_badge(actual_min)
 
     def _trigger_completion_badge(self, actual_min: int):
         self.completion_badge.setText(f"✓ Great work! Session Saved • +{actual_min} mins added")
