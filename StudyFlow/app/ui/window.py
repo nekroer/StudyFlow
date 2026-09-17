@@ -149,7 +149,6 @@ class MainWindow(QMainWindow):
             25
         )
         
-        # Obtain actual Sprint task ID separately from quest_id
         task_id = details.get("task_id", "")
         quest_id = details.get("quest_id", "")
         
@@ -227,11 +226,24 @@ class MainWindow(QMainWindow):
         )
         
         task_details = final_session_data.get("task_details", "Scheduled Session")
+        duration_secs = int(duration_mins) * 60
 
         # 1. Switch the view to the Session Page
         self.show_session()
 
-        # 2. Load the task into the SessionPage with the exact duration from scheduler
+        # 2. Establish coherent session state before starting timer lifecycle
+        self.session.active_session_data = final_session_data
+        self.session.sprint_task_id = task_id
+        self.session.remaining_seconds = duration_secs
+        self.session.initial_target_seconds = duration_secs
+
+        if hasattr(self.session, "timer_widget") and self.session.timer_widget:
+            if hasattr(self.session.timer_widget, "set_duration"):
+                self.session.timer_widget.set_duration(duration_secs)
+            if hasattr(self.session.timer_widget, "update_time"):
+                self.session.timer_widget.update_time(duration_secs)
+
+        # 3. Load the task into the SessionPage with the exact duration from scheduler
         if hasattr(self.session, "load_task"):
             self.session.load_task(
                 task_id=task_id,
@@ -240,8 +252,14 @@ class MainWindow(QMainWindow):
                 target_minutes=duration_mins  # Use duration_mins here
             )
 
-        # 3. Store the full transition payload so it gets logged later
-        self.session.active_session_data = final_session_data
+        # Re-ensure remaining_seconds and target seconds after load_task in case load_task reset them
+        self.session.remaining_seconds = duration_secs
+        self.session.initial_target_seconds = duration_secs
+        if hasattr(self.session, "timer_widget") and self.session.timer_widget:
+            if hasattr(self.session.timer_widget, "set_duration"):
+                self.session.timer_widget.set_duration(duration_secs)
+            if hasattr(self.session.timer_widget, "update_time"):
+                self.session.timer_widget.update_time(duration_secs)
 
         # 4. Trigger start_timer() which opens the PrepDialog preparation countdown
         if hasattr(self.session, "start_timer"):
