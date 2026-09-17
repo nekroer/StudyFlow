@@ -201,7 +201,7 @@ class MainWindow(QMainWindow):
             self.scheduler.refresh_scheduler_view()
 
     def _on_transition_completed(self, final_session_data: dict):
-        """Called when TransitionController finishes successfully; handoff payload to SessionPage and trigger prep timer."""
+        """Called when TransitionController finishes successfully; delegates setup and prep to SessionPage.start_planned_session()."""
         task_id = final_session_data.get("task_id", "")
         
         title = (
@@ -216,41 +216,17 @@ class MainWindow(QMainWindow):
             final_session_data.get("planned_duration_min") or 
             25
         )
-        
-        task_details = final_session_data.get("task_details", "Scheduled Session")
-        duration_secs = int(duration_mins) * 60
 
         # 1. Switch the view to the Session Page
         self.show_session()
 
-        # 2. Ensure session is inactive initially before prep countdown starts
-        self.session.is_session_active = False
-
-        # 3. Load task baseline first
-        if hasattr(self.session, "load_task"):
-            try:
-                self.session.load_task(task_id=task_id, title=title, details=task_details, target_minutes=duration_mins)
-            except TypeError:
-                try:
-                    self.session.load_task(task_id, title)
-                except Exception:
-                    pass
-
-        # 4. Enforce scheduled session state and timer values after load_task
-        self.session.active_session_data = final_session_data
-        self.session.sprint_task_id = task_id
-        self.session.remaining_seconds = duration_secs
-        self.session.initial_target_seconds = duration_secs
-
-        if hasattr(self.session, "timer_widget") and self.session.timer_widget:
-            if hasattr(self.session.timer_widget, "set_duration"):
-                self.session.timer_widget.set_duration(duration_secs)
-            if hasattr(self.session.timer_widget, "update_time"):
-                self.session.timer_widget.update_time(duration_secs)
-
-        # 5. Trigger start_timer() which opens the PrepDialog preparation countdown
-        if hasattr(self.session, "start_timer"):
-            self.session.start_timer()
+        # 2. Delegate scheduled session setup and prep workflow to SessionPage
+        self.session.start_planned_session(
+            task_id,
+            title,
+            duration_mins,
+            transition_data=final_session_data
+        )
 
     # ---------------- Cleanup ---------------- #
 
