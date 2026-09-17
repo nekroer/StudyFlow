@@ -627,21 +627,43 @@ class SessionPage(QWidget):
     def load_task(self, task_id: str = "", title: str = "", details: str = "", target_minutes: int = 60):
         self.sprint_task_id = str(task_id) if task_id else ""
         
-        # If title is missing, empty, or a generic placeholder, look it up directly from SprintManager using task_id
-        if (not title or title.strip() == "" or title.lower() == "focus session") and self.sprint_task_id:
+        # Immediately query SprintManager using task_id to fetch the correct title and duration
+        if self.sprint_task_id:
             try:
                 mgr = SprintManager()
-                all_tasks = getattr(mgr, "tasks", [])
-                if not all_tasks and hasattr(mgr, "load_tasks"):
-                    all_tasks = mgr.load_tasks()
-                for t in all_tasks:
-                    if str(t.get("id")) == str(self.sprint_task_id):
-                        title = t.get("title", "")
+                items = []
+                for attr in ["sprints", "tasks", "list_sprints", "get_sprints"]:
+                    val = getattr(mgr, attr, None)
+                    if callable(val):
+                        try: items = val(); break
+                        except: pass
+                    elif isinstance(val, list):
+                        items = val; break
+                
+                if not items:
+                    for loader in ["load_sprints", "load_tasks", "get_tasks"]:
+                        load_fn = getattr(mgr, loader, None)
+                        if callable(load_fn):
+                            try: items = load_fn(); break
+                            except: pass
+
+                for item in items:
+                    if isinstance(item, dict) and str(item.get("id")) == str(self.sprint_task_id):
+                        fetched_title = item.get("title", "") or item.get("name", "")
+                        if fetched_title:
+                            title = fetched_title
+                        
+                        dur = item.get("duration") or item.get("duration_mins") or item.get("minutes")
+                        if dur and isinstance(dur, (int, float)):
+                            target_minutes = int(dur)
                         break
             except Exception as e:
-                print(f"Error fetching task title from sprint manager: {e}")
+                print(f"Error looking up task from SprintManager: {e}")
 
-        self.prefilled_task_name = str(title) if title else "Focus Session"
+        if not title or title.strip() == "" or title.lower() == "focus session":
+            title = "Focus Session"
+
+        self.prefilled_task_name = str(title)
         self.prefilled_task_details = str(details) if details else ""
 
         target_secs = target_minutes * 60 if isinstance(target_minutes, int) and target_minutes > 0 else 3600
