@@ -141,7 +141,6 @@ class MainWindow(QMainWindow):
         Intercepts scheduled session launch and triggers the TransitionController pipeline.
         The controller will manage volume fading and emit show_dialog_requested.
         """
-        # Safely pull duration from any of the possible key names in scheduler.json or payload
         duration = (
             details.get("duration") or 
             details.get("planned_duration_min") or 
@@ -166,12 +165,10 @@ class MainWindow(QMainWindow):
 
     def _on_show_transition_dialog(self, session_payload: dict):
         """Called by TransitionController when the dialog should be presented to the user."""
-        # Pull the configured countdown duration (default to 120 if unavailable)
         countdown = 120
         if self.transition_controller and hasattr(self.transition_controller, "countdown_sec"):
             countdown = self.transition_controller.countdown_sec
         else:
-            # Fallback check directly from config file if controller doesn't expose it yet
             try:
                 from app.backend.paths import TRANSITION_CONFIG_FILE
                 import json
@@ -181,12 +178,9 @@ class MainWindow(QMainWindow):
             except Exception:
                 pass
 
-        # Pass the configured countdown seconds into the dialog
         dialog = TransitionDialog(countdown_seconds=countdown, parent=self)
         
-        # Run the dialog modally; exec() returns QDialog.Accepted if completed successfully
         if dialog.exec() == QDialog.Accepted:
-            # Pass collected user inputs to the controller to finish the sequence
             self.transition_controller.complete_transition(dialog.result_data())
         else:
             self.transition_controller.cancel_transition()
@@ -198,7 +192,6 @@ class MainWindow(QMainWindow):
 
     def on_session_completed(self, elapsed_minutes: int = 0):
         """Refreshes the scheduler board and resets the transition state whenever a session is completed."""
-        # Reset transition controller so it can handle subsequent sessions today
         if hasattr(self, "transition_controller"):
             self.transition_controller.reset_to_idle()
 
@@ -217,7 +210,6 @@ class MainWindow(QMainWindow):
             "Focus Session"
         )
         
-        # Safely catch duration from any possible key variant and fallback safely
         duration_mins = (
             final_session_data.get("duration_mins") or 
             final_session_data.get("duration") or 
@@ -231,7 +223,20 @@ class MainWindow(QMainWindow):
         # 1. Switch the view to the Session Page
         self.show_session()
 
-        # 2. Establish coherent session state before starting timer lifecycle
+        # 2. Ensure session is inactive initially before prep countdown starts
+        self.session.is_session_active = False
+
+        # 3. Load task baseline first
+        if hasattr(self.session, "load_task"):
+            try:
+                self.session.load_task(task_id=task_id, title=title, details=task_details, target_minutes=duration_mins)
+            except TypeError:
+                try:
+                    self.session.load_task(task_id, title)
+                except Exception:
+                    pass
+
+        # 4. Enforce scheduled session state and timer values after load_task
         self.session.active_session_data = final_session_data
         self.session.sprint_task_id = task_id
         self.session.remaining_seconds = duration_secs
@@ -243,25 +248,7 @@ class MainWindow(QMainWindow):
             if hasattr(self.session.timer_widget, "update_time"):
                 self.session.timer_widget.update_time(duration_secs)
 
-        # 3. Load the task into the SessionPage with the exact duration from scheduler
-        if hasattr(self.session, "load_task"):
-            self.session.load_task(
-                task_id=task_id,
-                title=title,
-                details=task_details,
-                target_minutes=duration_mins  # Use duration_mins here
-            )
-
-        # Re-ensure remaining_seconds and target seconds after load_task in case load_task reset them
-        self.session.remaining_seconds = duration_secs
-        self.session.initial_target_seconds = duration_secs
-        if hasattr(self.session, "timer_widget") and self.session.timer_widget:
-            if hasattr(self.session.timer_widget, "set_duration"):
-                self.session.timer_widget.set_duration(duration_secs)
-            if hasattr(self.session.timer_widget, "update_time"):
-                self.session.timer_widget.update_time(duration_secs)
-
-        # 4. Trigger start_timer() which opens the PrepDialog preparation countdown
+        # 5. Trigger start_timer() which opens the PrepDialog preparation countdown
         if hasattr(self.session, "start_timer"):
             self.session.start_timer()
 
