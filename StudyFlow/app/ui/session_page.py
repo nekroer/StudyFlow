@@ -583,40 +583,38 @@ class SessionPage(QWidget):
         )
         self.start_planned_session(task_id, title, duration_mins)
 
-    def start_planned_session(self, task_id: str, title: str, duration_mins: int, transition_data: dict = None):
-        self._session_end_emitted = False
+    def start_planned_session(self, task_id="", title="", details="", duration_minutes=60, quest_id=""):
+        """Authoritatively initializes and starts a scheduled session from the scheduler."""
         self.sprint_task_id = str(task_id) if task_id else ""
-        target_secs = duration_mins * 60 if duration_mins > 0 else 3600
-        self.default_seconds = target_secs
-        self.sync_timer(target_secs)
-
-        self.initial_target_seconds = target_secs
+        self.prefilled_task_name = str(title) if title else "Scheduled Session"
+        self.prefilled_task_details = str(details) if details else ""
+        
+        dur_sec = int(duration_minutes) * 60 if duration_minutes else 3600
+        self.remaining_seconds = dur_sec
+        self.initial_target_seconds = dur_sec
+        self.is_session_active = False
         
         self.active_session_data = {
-            "task_name": title,
-            "task_details": "Auto Planned Session",
-            "prep_duration_sec": 0,
-            "start_time": datetime.now(),
-            "planned_duration_sec": target_secs,
+            "task_id": self.sprint_task_id,
+            "title": self.prefilled_task_name,
+            "details": self.prefilled_task_details,
+            "duration": duration_minutes,
+            "quest_id": quest_id
         }
 
-        if transition_data and isinstance(transition_data, dict):
-            self.active_session_data.update(transition_data)
-            if transition_data.get("task_details"):
-                self.active_session_data["task_details"] = transition_data["task_details"]
+        # Update your UI labels/inputs safely if they exist in your original UI
+        if hasattr(self, "title_label") and self.prefilled_task_name:
+            self.title_label.setText(self.prefilled_task_name)
+        if hasattr(self, "task_input") and self.prefilled_task_name:
+            self.task_input.setText(self.prefilled_task_name)
 
-        self.goal_display_label.setText(f"<b>Goal:</b> {self.active_session_data.get('goal', 'None')}")
-        self.thought_display_label.setText(f"<b>Thoughts:</b> {self.active_session_data.get('thought', 'None')}")
-        self.distraction_display_label.setText(f"<b>Distractions to Avoid:</b> {self.active_session_data.get('distraction', 'None')}")
+        # Update the circular timer duration and remaining time
+        if hasattr(self, "circular_timer"):
+            self.circular_timer.set_duration(self.initial_target_seconds)
+            self.circular_timer.update_time(self.remaining_seconds)
 
-        self.is_session_active = True
-        self.circular_timer.setEnabled(False)
-        self.task_status_label.setText(f"Active Task: {title}")
-        
-        self.timer.start()
-        self._update_pause_button_style()
-        self._update_button_states()
-        self._update_floating_window_display()
+        # Start the timer immediately for scheduled sessions
+        self.start_timer()
 
     def sync_timer(self, seconds: int):
         self.remaining_seconds = max(0, min(self.default_seconds, seconds))
@@ -834,39 +832,38 @@ class SessionPage(QWidget):
                     pass
 
     def reset_timer(self):
-        """Stops active timers, clears cached transition session state, and restores clean defaults."""
-        if self.timer.isActive():
+        """Fully resets the session state, task status label, and forces the timer back to 60 minutes."""
+        if hasattr(self, "timer"):
             self.timer.stop()
-
+            
         self.is_session_active = False
-        self.active_session_data = None
+        self.active_session_data = {}
         self.sprint_task_id = ""
         self.prefilled_task_name = ""
         self.prefilled_task_details = ""
-
-        # Revert durations back to default 60 minutes
-        self.default_seconds = 3600
+        
+        # Reset time tracking variables back to 60 minutes (3600 seconds)
         self.remaining_seconds = 3600
         self.initial_target_seconds = 3600
 
-        # Reset UI timer widget and enable interaction
-        self.circular_timer.set_duration(3600)
+        # Reset the task status text label below the timer
+        if hasattr(self, "task_status_label"):
+            self.task_status_label.setText("Set time with needle and press Start")
+            
+        # Clear out reflection displays on reset
+        if hasattr(self, "goal_display_label"):
+            self.goal_display_label.setText("<b>Goal:</b> None")
+        if hasattr(self, "thought_display_label"):
+            self.thought_display_label.setText("<b>Thoughts:</b> None")
+        if hasattr(self, "distraction_display_label"):
+            self.distraction_display_label.setText("<b>Distractions to Avoid:</b> None")
+
+        # Re-initialize the circular timer and digital time display
         self.sync_timer(3600)
-        self.circular_timer.setEnabled(True)
-
-        # Reset labels
-        self.task_status_label.setText("Set time with needle and press Start")
-        self.goal_display_label.setText("<b>Goal:</b> None")
-        self.thought_display_label.setText("<b>Thoughts:</b> None")
-        self.distraction_display_label.setText("<b>Distractions to Avoid:</b> None")
-
-        if self.floating_window:
-            self.floating_window.close()
-            self.floating_window = None
-            self.btn_popout.setText("🗗 Popout Floating Timer")
-
+        
+        # Update control button states
         self._update_button_states()
-        self._update_floating_window_display()
+        self._update_pause_button_style()
 
     def tick(self):
         if self.remaining_seconds > 0:
@@ -887,7 +884,7 @@ class SessionPage(QWidget):
             self.btn_start.setEnabled(False)
             self.btn_pause.setEnabled(True)
             self.btn_finish.setEnabled(True)
-            self.btn_reset.setEnabled(True)
+            self.btn_reset.setEnabled(False)  # Disabled while a session is going on
         else:
             self.btn_start.setEnabled(True)
             self.btn_pause.setEnabled(False)
