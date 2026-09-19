@@ -117,7 +117,7 @@ class ActivityMonitorPage(QWidget):
 
         self.refresh_timer = QTimer(self)
         self.refresh_timer.setInterval(1000)
-        self.refresh_timer.timeout.connect(self.refresh)
+        self.refresh_timer.timeout.connect(lambda: self._render(self.tracker.snapshot()))
         self.refresh_timer.start()
 
         self.tracker.screen_time_updated.connect(self._on_tracker_update)
@@ -125,7 +125,7 @@ class ActivityMonitorPage(QWidget):
         self.refresh()
 
     def refresh(self):
-        self._render(self.tracker.snapshot())
+        self.tracker.refresh_now()
 
     def _on_tracker_update(self, snapshot: dict):
         self._render(snapshot)
