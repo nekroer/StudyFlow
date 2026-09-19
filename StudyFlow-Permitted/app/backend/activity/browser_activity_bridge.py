@@ -51,6 +51,12 @@ class BrowserActivityBridge(QObject):
                     payload = json.loads(self.rfile.read(length).decode("utf-8"))
                     if not isinstance(payload, dict):
                         raise ValueError("Payload must be an object")
+                    if payload.get("source") != "chrome-extension":
+                        raise ValueError("Invalid activity source")
+                    if not isinstance(payload.get("active_tab"), dict):
+                        raise ValueError("Missing active_tab")
+                    if not isinstance(payload.get("audible_tabs", []), list):
+                        raise ValueError("audible_tabs must be a list")
                     payload["received_at"] = time()
                     with bridge._lock:
                         bridge._latest = payload
