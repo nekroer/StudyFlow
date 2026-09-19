@@ -142,9 +142,9 @@ class MainWindow(QMainWindow):
         The controller will manage volume fading and emit show_dialog_requested.
         """
         duration = (
-            details.get("duration") or 
-            details.get("planned_duration_min") or 
-            details.get("duration_mins") or 
+            details.get("duration") or
+            details.get("planned_duration_min") or
+            details.get("duration_mins") or
             25
         )
         
@@ -165,18 +165,8 @@ class MainWindow(QMainWindow):
 
     def _on_show_transition_dialog(self, session_payload: dict):
         """Called by TransitionController when the dialog should be presented to the user."""
-        countdown = 120
-        if self.transition_controller and hasattr(self.transition_controller, "countdown_sec"):
-            countdown = self.transition_controller.countdown_sec
-        else:
-            try:
-                from app.backend.paths import TRANSITION_CONFIG_FILE
-                import json
-                if TRANSITION_CONFIG_FILE.exists():
-                    cfg = json.loads(TRANSITION_CONFIG_FILE.read_text(encoding="utf-8"))
-                    countdown = cfg.get("countdown_sec", 120)
-            except Exception:
-                pass
+        # Cleanly access countdown_sec directly from TransitionController
+        countdown = self.transition_controller.countdown_sec
 
         dialog = TransitionDialog(countdown_seconds=countdown, parent=self)
         
@@ -194,6 +184,11 @@ class MainWindow(QMainWindow):
         """Refreshes the scheduler board and resets the transition state whenever a session is completed."""
         if hasattr(self, "transition_controller"):
             self.transition_controller.reset_to_idle()
+
+        completed_data = getattr(self.session, "last_completed_session_data", {})
+        quest_id = completed_data.get("quest_id")
+        if quest_id and hasattr(self.scheduler, "engine"):
+            self.scheduler.engine.complete_session(quest_id)
 
         if hasattr(self.scheduler, "refresh_board"):
             self.scheduler.refresh_board()

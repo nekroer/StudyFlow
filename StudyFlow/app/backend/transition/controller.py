@@ -33,6 +33,12 @@ class WindowsVolumeManager(QObject):
         self.step_timer = QTimer(self)
         self.step_timer.timeout.connect(self._step_volume_plateau)
 
+        self.enforce_timer = QTimer(self)
+        self.enforce_timer.setInterval(300)
+        self.enforce_timer.timeout.connect(self._enforce_volume)
+        self._enforce_target = 0.0
+        self._is_enforcing = False
+
         self._original_volume = 1.0
         self._target_vol = 0.0
         self._current_step_index = 0
@@ -56,6 +62,33 @@ class WindowsVolumeManager(QObject):
             return self.volume_interface.GetMasterVolumeLevelScalar()
         except Exception:
             return 1.0
+
+    def start_zero_enforcement(self, target_vol: float = 0.0):
+        if not self.volume_interface:
+            return
+        try:
+            self._enforce_target = max(0.0, min(1.0, target_vol))
+            self.volume_interface.SetMasterVolumeLevelScalar(self._enforce_target, None)
+            self._is_enforcing = True
+            self.enforce_timer.start()
+        except Exception as e:
+            print(f"Error starting zero enforcement: {e}")
+
+    def stop_zero_enforcement(self):
+        if self.enforce_timer.isActive():
+            self.enforce_timer.stop()
+        self._is_enforcing = False
+
+    def _enforce_volume(self):
+        if not self.volume_interface or not self._is_enforcing:
+            self.enforce_timer.stop()
+            return
+        try:
+            current = self.volume_interface.GetMasterVolumeLevelScalar()
+            if abs(current - self._enforce_target) > 0.01:
+                self.volume_interface.SetMasterVolumeLevelScalar(self._enforce_target, None)
+        except Exception:
+            pass
 
     def start_fade(self, duration_sec: int, target_vol: float = 0.0):
         if not self.volume_interface:
@@ -122,6 +155,7 @@ class WindowsVolumeManager(QObject):
 
     def restore_volume(self):
         self.cancel_fade()
+        self.stop_zero_enforcement()
         if not self.volume_interface:
             return
         try:
@@ -154,7 +188,7 @@ class AutomatedTransitionMonitor:
                     title=title,
                     msg=message,
                     duration="short",
-                    icon = str(Path(__file__).resolve().parents[2] / "assets" / "icons" / "logo.ico")  # Must be an absolute path to a .ico file
+                    icon = str(Path(__file__).resolve().parents[2] / "assets" / "icons" / "logo.ico")
                 )
                 toast.show()
             except Exception as e:
@@ -175,26 +209,34 @@ class AutomatedTransitionMonitor:
             fade_lead_time = fade_start_offset_min * 60
             warning_lead_time = 10 * 60  
             vol_warning_lead_time = 7 * 60   
-            dialog_warning_lead_time = 140   
             
             now = datetime.now()
             sessions = schedule_data.get("sessions", [])
 
             for session in sessions:
-                session_id = session.get("quest_id") or session.get("title")
+                if session.get("completed") is True:
+                    continue
+
+                session_id = session.get("quest_id")
+                if not session_id:
+                    continue
                 time_str = session.get("start_time")
                 session_title = session.get("title", "Scheduled Session")
                 
                 if not time_str:
                     continue
 
-                today_date = now.date()
-                parsed_time = datetime.strptime(time_str, "%H:%M").time()
-                session_start = datetime.combine(today_date, parsed_time)
+                try:
+                    today_date = now.date()
+                    parsed_time = datetime.strptime(time_str, "%H:%M").time()
+                    session_start = datetime.combine(today_date, parsed_time)
+                except Exception:
+                    continue
                 
                 warning_trigger_time = session_start - timedelta(seconds=warning_lead_time)
                 vol_warning_trigger_time = session_start - timedelta(seconds=vol_warning_lead_time)
-                dialog_warning_trigger_time = session_start - timedelta(seconds=dialog_warning_lead_time)
+                dialog_warning_trigger_time = session_start - timedelta(seconds=160)
+                dialog_warning_end_time = session_start - timedelta(seconds=100)
                 fade_trigger_time = session_start - timedelta(seconds=fade_lead_time)
                 dialog_trigger_time = session_start - timedelta(seconds=countdown_sec)
 
@@ -207,15 +249,15 @@ class AutomatedTransitionMonitor:
                     )
 
                 # 2. Trigger T - 7 Min Volume Warning Notification
-                if vol_warning_trigger_time <= now < dialog_warning_trigger_time and session_id not in self.vol_warned_sessions:
+                if vol_warning_trigger_time <= now < fade_trigger_time and session_id not in self.vol_warned_sessions:
                     self.vol_warned_sessions.add(session_id)
                     self.send_windows_notification(
                         "Volume Reducing Notice", 
                         f"Volume will be reducing from here onwards for '{session_title}'."
                     )
 
-                # 3. Trigger T - 2:20 Dialog Warning Notification
-                if dialog_warning_trigger_time <= now < fade_trigger_time and session_id not in self.dialog_warned_sessions:
+                # 3. Trigger Dialog Warning Notification
+                if dialog_warning_trigger_time <= now < dialog_warning_end_time and session_id not in self.dialog_warned_sessions:
                     self.dialog_warned_sessions.add(session_id)
                     self.send_windows_notification(
                         "Transition Approaching", 
@@ -302,6 +344,10 @@ class TransitionController(QObject):
             if session_payload:
                 self.session_data.update(session_payload)
             
+            self.volume_manager.cancel_fade()
+            self.volume_manager.finish_at_volume(0.0)
+            self.volume_manager.start_zero_enforcement(0.0)
+
             self.state = TransitionState.TRANSITION_DIALOG
             self.show_dialog_requested.emit(self.session_data)
             return True
@@ -318,13 +364,15 @@ class TransitionController(QObject):
             self.fade_duration_sec = fade_sec if fade_sec is not None else config.get("fade_duration_sec", 300)
             self.countdown_sec = countdown_sec if countdown_sec is not None else config.get("countdown_sec", 120)
 
-            self.state = TransitionState.FADING
             self.session_data = dict(session_payload)
 
-            self.transition_started.emit(self.session_data)
-            self.volume_manager.start_fade(duration_sec=self.fade_duration_sec, target_vol=0.0)
+            self.volume_manager.cancel_fade()
+            self.volume_manager._original_volume = self.volume_manager.get_current_volume()
+            self.volume_manager.finish_at_volume(0.0)
+            self.volume_manager.start_zero_enforcement(0.0)
 
             self.state = TransitionState.TRANSITION_DIALOG
+            self.transition_started.emit(self.session_data)
             self.show_dialog_requested.emit(self.session_data)
             return True
 
@@ -339,6 +387,7 @@ class TransitionController(QObject):
             return
 
         try:
+            self.volume_manager.stop_zero_enforcement()
             self.volume_manager.finish_at_volume(0.15)
             
             # Ensures the original title and session metadata are never overwritten
@@ -356,6 +405,7 @@ class TransitionController(QObject):
             self.cancel_transition()
 
     def cancel_transition(self):
+        self.volume_manager.stop_zero_enforcement()
         self.volume_manager.restore_volume()
         self.state = TransitionState.IDLE
         self.session_data = {}
@@ -364,5 +414,6 @@ class TransitionController(QObject):
     def reset_to_idle(self):
         """Resets the transition state machine back to IDLE so future sessions can trigger transitions."""
         self.volume_manager.cancel_fade()
+        self.volume_manager.stop_zero_enforcement()
         self.state = TransitionState.IDLE
         self.session_data = {}

@@ -585,6 +585,7 @@ class SessionPage(QWidget):
         """Authoritatively initializes and starts a scheduled session from the scheduler preserving original transition compatibility."""
         transition_data = transition_data or {}
         quest_id = transition_data.get("quest_id")
+        self.last_completed_session_data = {}
 
         self.sprint_task_id = str(task_id) if task_id else ""
         self.prefilled_task_name = str(title) if title else "Scheduled Session"
@@ -778,7 +779,7 @@ class SessionPage(QWidget):
                     pass
 
     def reset_timer(self):
-        """Fully resets the session state, task status label, and forces the timer back to default."""
+        """Fully resets the session state, task status label, and forces the timer back to 60 minutes."""
         if hasattr(self, "timer"):
             self.timer.stop()
             
@@ -788,9 +789,8 @@ class SessionPage(QWidget):
             self.btn_popout.setText("🗗 Popout Floating Timer")
             
         self.is_session_active = False
+        self.circular_timer.setEnabled(True)
         self.active_session_data = {}
-        
-        # CLEAR TASK NAMES & PREFILLS COMPLETELY ON RESET
         self.sprint_task_id = ""
         self.prefilled_task_name = ""
         self.prefilled_task_details = ""

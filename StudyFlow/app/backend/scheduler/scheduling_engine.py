@@ -15,6 +15,8 @@ class SchedulingEngine:
         
         processed_sessions = []
         for session in sessions:
+            if session.get("completed") is True:
+                continue
             updated_session = self._derive_session_status(session)
             processed_sessions.append(updated_session)
             
@@ -22,6 +24,20 @@ class SchedulingEngine:
             "version": data.get("version", "1.0"),
             "quests": processed_sessions
         }
+
+    def complete_session(self, quest_id: str) -> bool:
+        """Mark a scheduled session occurrence as completed by quest_id."""
+        data = self.storage.load()
+        sessions = data.get("sessions", [])
+        saved = False
+        for session in sessions:
+            if session.get("quest_id") == quest_id:
+                session["completed"] = True
+                saved = True
+                break
+        if saved:
+            return self.storage.save(data)
+        return False
 
     def get_available_sprint_tasks(self) -> list:
         """
@@ -55,6 +71,8 @@ class SchedulingEngine:
         new_end_mins = new_start_mins + new_duration
 
         for session in sessions:
+            if session.get("completed") is True:
+                continue
             if exclude_session_id and session.get("quest_id") == exclude_session_id:
                 continue
             
