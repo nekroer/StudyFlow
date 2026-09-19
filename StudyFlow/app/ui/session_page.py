@@ -331,6 +331,7 @@ class SessionPage(QWidget):
         self.is_session_active = False
         self.floating_window = None
         self._session_end_emitted = False
+        self.last_completed_session_data = {}
 
         self.themes = [
             {"key": "light_blue", "name": "Light Blue", "hex": "#0096D6"},
@@ -582,6 +583,9 @@ class SessionPage(QWidget):
         transition_data: dict = None
     ):
         """Authoritatively initializes and starts a scheduled session from the scheduler preserving original transition compatibility."""
+        transition_data = transition_data or {}
+        quest_id = transition_data.get("quest_id")
+
         self.sprint_task_id = str(task_id) if task_id else ""
         self.prefilled_task_name = str(title) if title else "Scheduled Session"
         self.prefilled_task_details = "Auto Planned Session"
@@ -593,10 +597,19 @@ class SessionPage(QWidget):
 
         self.active_session_data = {
             "task_id": self.sprint_task_id,
+            "quest_id": quest_id,
             "task_name": self.prefilled_task_name,
             "task_details": self.prefilled_task_details,
             "duration": duration_mins,
-            "transition_data": transition_data or {}
+            "goal": transition_data.get("goal") or transition_data.get("goals") or "None",
+            "thought": transition_data.get("thought") or transition_data.get("thoughts") or "None",
+            "distraction": (
+                transition_data.get("distraction")
+                or transition_data.get("distractions")
+                or transition_data.get("distractions_to_avoid")
+                or "None"
+            ),
+            "transition_data": transition_data
         }
 
         self.sync_timer(dur_sec)
@@ -613,9 +626,9 @@ class SessionPage(QWidget):
                 "planned_duration_sec": self.initial_target_seconds,
             })
 
-            self.goal_display_label.setText("<b>Goal:</b> Scheduled Session")
-            self.thought_display_label.setText("<b>Thoughts:</b> None")
-            self.distraction_display_label.setText("<b>Distractions to Avoid:</b> None")
+            self.goal_display_label.setText(f"<b>Goal:</b> {self.active_session_data.get('goal', 'None')}")
+            self.thought_display_label.setText(f"<b>Thoughts:</b> {self.active_session_data.get('thought', 'None')}")
+            self.distraction_display_label.setText(f"<b>Distractions to Avoid:</b> {self.active_session_data.get('distraction', 'None')}")
 
             self.is_session_active = True
             self.circular_timer.setEnabled(False)
@@ -765,7 +778,7 @@ class SessionPage(QWidget):
                     pass
 
     def reset_timer(self):
-        """Fully resets the session state, task status label, and forces the timer back to 60 minutes."""
+        """Fully resets the session state, task status label, and forces the timer back to default."""
         if hasattr(self, "timer"):
             self.timer.stop()
             
@@ -776,6 +789,8 @@ class SessionPage(QWidget):
             
         self.is_session_active = False
         self.active_session_data = {}
+        
+        # CLEAR TASK NAMES & PREFILLS COMPLETELY ON RESET
         self.sprint_task_id = ""
         self.prefilled_task_name = ""
         self.prefilled_task_details = ""
@@ -838,6 +853,7 @@ class SessionPage(QWidget):
             return
 
         session_data_copy = dict(self.active_session_data)
+        self.last_completed_session_data = session_data_copy
         self.active_session_data = {}  # Mark session as no longer active
         self.is_session_active = False  # Ensure session state is marked inactive immediately
         
