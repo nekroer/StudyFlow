@@ -46,23 +46,35 @@ async function collectSnapshot() {
   }
 }
 
-chrome.runtime.onInstalled.addListener(() => {
-  chrome.alarms.create(ALARM_NAME, {periodInMinutes: 0.1});
-  collectSnapshot();
-});
-
-chrome.runtime.onAlarm.addListener((alarm) => {
-  if (alarm.name === ALARM_NAME) collectSnapshot();
-});
-
-chrome.tabs.onActivated.addListener(collectSnapshot);
-chrome.tabs.onUpdated.addListener((_tabId, changeInfo) => {
-  if (
-    changeInfo.status ||
-    changeInfo.audible !== undefined ||
-    changeInfo.title ||
-    changeInfo.url
-  ) {
+if (chrome.runtime?.onInstalled?.addListener) {
+  chrome.runtime.onInstalled.addListener(() => {
+    chrome.alarms?.create(ALARM_NAME, {periodInMinutes: 0.1});
     collectSnapshot();
-  }
-});
+  });
+}
+
+if (chrome.alarms?.onAlarm?.addListener) {
+  chrome.alarms.onAlarm.addListener((alarm) => {
+    if (alarm.name === ALARM_NAME) collectSnapshot();
+  });
+}
+
+if (chrome.tabs?.onActivated?.addListener) {
+  chrome.tabs.onActivated.addListener(collectSnapshot);
+}
+
+if (chrome.tabs?.onUpdated?.addListener) {
+  chrome.tabs.onUpdated.addListener((_tabId, changeInfo) => {
+    if (
+      changeInfo.status ||
+      changeInfo.audible !== undefined ||
+      changeInfo.title ||
+      changeInfo.url
+    ) {
+      collectSnapshot();
+    }
+  });
+}
+
+chrome.alarms?.create(ALARM_NAME, {periodInMinutes: 0.1});
+collectSnapshot();
