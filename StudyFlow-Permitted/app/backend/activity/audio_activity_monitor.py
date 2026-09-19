@@ -103,6 +103,8 @@ class AudioActivityMonitor(QObject):
 
             if not process_id or not process_name:
                 continue
+            if process_name.lower() == "chrome.exe":
+                continue
             if process_id == foreground_pid:
                 continue
 
