@@ -25,7 +25,31 @@ class LASTINPUTINFO(ctypes.Structure):
 
 
 class ScreenTimeTracker(QObject):
-    """Aggregates foreground activity into persistent daily screen-time totals."""
+    """Aggregates meaningful foreground and browser activity into daily totals."""
+
+    IGNORED_PROCESSES = {
+        "applicationframehost.exe",
+        "backgroundtaskhost.exe",
+        "conhost.exe",
+        "ctfmon.exe",
+        "dllhost.exe",
+        "dwm.exe",
+        "explorer.exe",
+        "fontdrvhost.exe",
+        "lockapp.exe",
+        "openwith.exe",
+        "runtimebroker.exe",
+        "searchhost.exe",
+        "sihost.exe",
+        "smartscreen.exe",
+        "startmenuexperiencehost.exe",
+        "svchost.exe",
+        "systemsettings.exe",
+        "taskhostw.exe",
+        "textinputhost.exe",
+        "wmiprvse.exe",
+        "wudfhost.exe",
+    }
 
     screen_time_updated = Signal(dict)
     error_occurred = Signal(str)
@@ -225,6 +249,8 @@ class ScreenTimeTracker(QObject):
         )
 
         process_name = self._current_activity.process_name or "Unknown"
+        if process_name.lower() in self.IGNORED_PROCESSES:
+            return
         app = day["applications"].setdefault(
             process_name,
             {
