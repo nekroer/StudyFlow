@@ -1,8 +1,8 @@
 """Windows background-audio session observer.
 
-Reports processes with active Windows audio sessions that are not the current
-foreground application. It does not record audio or make intervention
-decisions.
+Reports processes with active Windows audio sessions. It does not decide
+whether a session is foreground or background; that is the tracker's job.
+It does not record audio or make intervention decisions.
 """
 
 from __future__ import annotations
@@ -32,7 +32,7 @@ class AudioActivityRecord:
 
 
 class AudioActivityMonitor(QObject):
-    """Poll active Windows audio sessions and expose background audio changes."""
+    """Poll active Windows audio sessions and expose activity changes."""
 
     audio_activity_changed = Signal(object)
     error_occurred = Signal(str)
@@ -82,7 +82,6 @@ class AudioActivityMonitor(QObject):
                 )
             return []
 
-        foreground_pid = self._foreground_process_id()
         records = []
 
         for session in AudioUtilities.GetAllSessions():
@@ -103,11 +102,6 @@ class AudioActivityMonitor(QObject):
 
             if not process_id or not process_name:
                 continue
-            if process_name.lower() == "chrome.exe":
-                continue
-            if process_id == foreground_pid:
-                continue
-
             records.append(
                 AudioActivityRecord(
                     timestamp=datetime.now(),
