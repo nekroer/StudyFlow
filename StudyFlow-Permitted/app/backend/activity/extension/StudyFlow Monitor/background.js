@@ -10,20 +10,32 @@ function sendSnapshot(snapshot) {
 }
 
 async function collectSnapshot() {
-  const tabs = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
-  const active = tabs[0];
+  const activeTabs = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
+  const active = activeTabs[0];
   if (!active) return;
+
+  const audibleTabs = await chrome.tabs.query({ audible: true });
 
   sendSnapshot({
     source: "chrome-extension",
     timestamp: new Date().toISOString(),
-    tab_id: active.id ?? -1,
-    window_id: active.windowId ?? -1,
-    url: active.url || "",
-    title: active.title || "",
-    audible: Boolean(active.audible),
-    discarded: Boolean(active.discarded),
-    status: active.status || ""
+    active_tab: {
+      tab_id: active.id ?? -1,
+      window_id: active.windowId ?? -1,
+      url: active.url || "",
+      title: active.title || "",
+      audible: Boolean(active.audible),
+      discarded: Boolean(active.discarded),
+      status: active.status || ""
+    },
+    audible_tabs: audibleTabs.map((tab) => ({
+      tab_id: tab.id ?? -1,
+      window_id: tab.windowId ?? -1,
+      url: tab.url || "",
+      title: tab.title || "",
+      audible: Boolean(tab.audible),
+      discarded: Boolean(tab.discarded)
+    }))
   });
 }
 
