@@ -9,6 +9,7 @@ from ctypes import wintypes
 from PySide6.QtCore import QObject, QTimer, Signal
 
 from app.backend.activity.activity_monitor import ActivityMonitor
+from app.backend.activity.browser_activity_bridge import BrowserActivityBridge
 from app.backend.paths import CACHE_DIR
 
 
@@ -32,12 +33,14 @@ class ScreenTimeTracker(QObject):
     def __init__(
         self,
         activity_monitor: ActivityMonitor | None = None,
+        browser_bridge: BrowserActivityBridge | None = None,
         idle_timeout_sec: int = 60,
         parent=None,
     ):
         super().__init__(parent)
 
         self.activity_monitor = activity_monitor or ActivityMonitor(parent=self)
+        self.browser_bridge = browser_bridge or BrowserActivityBridge(parent=self)
         self.idle_timeout_sec = max(1, int(idle_timeout_sec))
 
         self.data_file = CACHE_DIR / "screen_time.json"
@@ -46,6 +49,8 @@ class ScreenTimeTracker(QObject):
         self._current_activity = None
         self._last_accounted_at = time.monotonic()
         self._dirty = False
+        self._latest_browser_snapshot = {}
+        self._last_browser_accounted_at = time.monotonic()
 
         self.accounting_timer = QTimer(self)
         self.accounting_timer.setInterval(1000)
@@ -57,11 +62,15 @@ class ScreenTimeTracker(QObject):
 
         self.activity_monitor.activity_changed.connect(self._on_activity_changed)
         self.activity_monitor.error_occurred.connect(self.error_occurred.emit)
+        self.browser_bridge.snapshot_received.connect(self._on_browser_snapshot)
+        self.browser_bridge.error_occurred.connect(self.error_occurred.emit)
 
     def start(self):
         """Start foreground observation and screen-time accounting."""
         if not self.activity_monitor.is_running():
             self.activity_monitor.start()
+        if not self.browser_bridge.is_running():
+            self.browser_bridge.start()
 
         self._last_accounted_at = time.monotonic()
         if not self.accounting_timer.isActive():
@@ -79,6 +88,7 @@ class ScreenTimeTracker(QObject):
         self.accounting_timer.stop()
         self.save_timer.stop()
         self.activity_monitor.stop()
+        self.browser_bridge.stop()
 
     def is_running(self) -> bool:
         return self.accounting_timer.isActive()
@@ -113,6 +123,7 @@ class ScreenTimeTracker(QObject):
 
     def snapshot(self) -> dict:
         current = self._current_activity
+        browser = self._latest_browser_snapshot
 
         return {
             "date": self._today_key(),
@@ -130,7 +141,60 @@ class ScreenTimeTracker(QObject):
             ),
             "is_running": self.is_running(),
             "is_idle": self._is_idle(),
+            "browser_activity": dict(browser),
+            "browser_sites": self.today_browser_sites(),
         }
+
+    def today_browser_sites(self) -> list[dict]:
+        today = self._today_key()
+        sites = self._data.get("days", {}).get(today, {}).get("browser_sites", {})
+        result = []
+        for host, entry in sites.items():
+            result.append({"host": host, "seconds": int(entry.get("seconds", 0))})
+        result.sort(key=lambda item: item["seconds"], reverse=True)
+        return result
+
+    def _on_browser_snapshot(self, snapshot: dict):
+        self._account_browser_activity()
+        self._latest_browser_snapshot = snapshot
+        self._last_browser_accounted_at = time.monotonic()
+        self._emit_update()
+
+    def _account_browser_activity(self):
+        now = time.monotonic()
+        elapsed = max(0.0, now - self._last_browser_accounted_at)
+        self._last_browser_accounted_at = now
+
+        if not self._latest_browser_snapshot:
+            return
+        current = self._current_activity
+        if current is None or current.process_name.lower() != "chrome.exe" or self._is_idle():
+            return
+
+        active_tab = self._latest_browser_snapshot.get("active_tab", {})
+        if not active_tab or active_tab.get("discarded"):
+            return
+
+        host = self._browser_host(active_tab.get("url", ""))
+        seconds = int(elapsed)
+        if not host or seconds <= 0:
+            return
+
+        today = self._today_key()
+        day = self._data.setdefault("days", {}).setdefault(
+            today,
+            {"total_seconds": 0, "applications": {}},
+        )
+        sites = day.setdefault("browser_sites", {})
+        entry = sites.setdefault(host, {"seconds": 0})
+        entry["seconds"] += seconds
+        self._dirty = True
+
+    @staticmethod
+    def _browser_host(url: str) -> str:
+        from urllib.parse import urlparse
+        parsed = urlparse(url or "")
+        return parsed.hostname or ""
 
     def _on_activity_changed(self, activity):
         self._account_current_activity()
