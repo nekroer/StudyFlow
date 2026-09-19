@@ -283,7 +283,10 @@ class ScreenTimeTracker(QObject):
     def _on_activity_changed(self, activity):
         self._account_current_activity()
         self._current_activity = activity
-        self._last_accounted_at = time.monotonic()
+        now = time.monotonic()
+        self._last_accounted_at = now
+        self._last_browser_accounted_at = now
+        self._last_audio_accounted_at = now
         self._emit_update()
 
     def _account_current_activity(self):
