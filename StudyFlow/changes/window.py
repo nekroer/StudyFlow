@@ -195,11 +195,6 @@ class MainWindow(QMainWindow):
         if hasattr(self, "transition_controller"):
             self.transition_controller.reset_to_idle()
 
-        completed_data = getattr(self.session, "last_completed_session_data", {})
-        quest_id = completed_data.get("quest_id")
-        if quest_id and hasattr(self.scheduler, "engine"):
-            self.scheduler.engine.complete_session(quest_id)
-
         if hasattr(self.scheduler, "refresh_board"):
             self.scheduler.refresh_board()
         elif hasattr(self.scheduler, "refresh_scheduler_view"):
