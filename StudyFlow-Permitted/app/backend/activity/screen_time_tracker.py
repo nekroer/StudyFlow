@@ -10,6 +10,7 @@ from PySide6.QtCore import QObject, QTimer, Signal
 
 from app.backend.activity.activity_monitor import ActivityMonitor
 from app.backend.activity.browser_activity_bridge import BrowserActivityBridge
+from app.backend.activity.audio_activity_monitor import AudioActivityMonitor
 from app.backend.paths import CACHE_DIR
 
 
@@ -58,6 +59,7 @@ class ScreenTimeTracker(QObject):
         self,
         activity_monitor: ActivityMonitor | None = None,
         browser_bridge: BrowserActivityBridge | None = None,
+        audio_monitor: AudioActivityMonitor | None = None,
         idle_timeout_sec: int = 60,
         parent=None,
     ):
@@ -65,6 +67,7 @@ class ScreenTimeTracker(QObject):
 
         self.activity_monitor = activity_monitor or ActivityMonitor(parent=self)
         self.browser_bridge = browser_bridge or BrowserActivityBridge(parent=self)
+        self.audio_monitor = audio_monitor or AudioActivityMonitor(parent=self)
         self.idle_timeout_sec = max(1, int(idle_timeout_sec))
 
         self.data_file = CACHE_DIR / "screen_time.json"
@@ -75,6 +78,8 @@ class ScreenTimeTracker(QObject):
         self._dirty = False
         self._latest_browser_snapshot = {}
         self._last_browser_accounted_at = time.monotonic()
+        self._latest_audio_activity = []
+        self._last_audio_accounted_at = time.monotonic()
 
         self.accounting_timer = QTimer(self)
         self.accounting_timer.setInterval(1000)
@@ -88,6 +93,8 @@ class ScreenTimeTracker(QObject):
         self.activity_monitor.error_occurred.connect(self.error_occurred.emit)
         self.browser_bridge.snapshot_received.connect(self._on_browser_snapshot)
         self.browser_bridge.error_occurred.connect(self.error_occurred.emit)
+        self.audio_monitor.audio_activity_changed.connect(self._on_audio_activity_changed)
+        self.audio_monitor.error_occurred.connect(self.error_occurred.emit)
 
     def start(self):
         """Start foreground observation and screen-time accounting."""
@@ -95,6 +102,8 @@ class ScreenTimeTracker(QObject):
             self.activity_monitor.start()
         if not self.browser_bridge.is_running():
             self.browser_bridge.start()
+        if not self.audio_monitor.is_running():
+            self.audio_monitor.start()
 
         self._last_accounted_at = time.monotonic()
         if not self.accounting_timer.isActive():
@@ -113,6 +122,7 @@ class ScreenTimeTracker(QObject):
         self.save_timer.stop()
         self.activity_monitor.stop()
         self.browser_bridge.stop()
+        self.audio_monitor.stop()
 
     def is_running(self) -> bool:
         return self.accounting_timer.isActive()
@@ -167,6 +177,7 @@ class ScreenTimeTracker(QObject):
             "is_idle": self._is_idle(),
             "browser_activity": dict(browser),
             "browser_sites": self.today_browser_sites(),
+            "background_audio": self.today_background_audio(),
         }
 
     def today_browser_sites(self) -> list[dict]:
@@ -219,6 +230,55 @@ class ScreenTimeTracker(QObject):
         from urllib.parse import urlparse
         parsed = urlparse(url or "")
         return parsed.hostname or ""
+
+    def today_background_audio(self) -> list[dict]:
+        today = self._today_key()
+        audio = self._data.get("days", {}).get(today, {}).get("background_audio", {})
+        result = []
+        for process_name, entry in audio.items():
+            result.append({
+                "process_name": process_name,
+                "process_id": int(entry.get("process_id", 0)),
+                "seconds": int(entry.get("seconds", 0)),
+            })
+        result.sort(key=lambda item: item["seconds"], reverse=True)
+        return result
+
+    def _on_audio_activity_changed(self, records):
+        self._account_background_audio()
+        self._latest_audio_activity = list(records)
+        self._last_audio_accounted_at = time.monotonic()
+        self._emit_update()
+
+    def _account_background_audio(self):
+        now = time.monotonic()
+        elapsed = max(0.0, now - self._last_audio_accounted_at)
+        self._last_audio_accounted_at = now
+
+        if self._is_idle():
+            return
+
+        seconds = int(elapsed)
+        if seconds <= 0:
+            return
+
+        today = self._today_key()
+        day = self._data.setdefault("days", {}).setdefault(
+            today,
+            {"total_seconds": 0, "applications": {}},
+        )
+        audio = day.setdefault("background_audio", {})
+
+        for record in self._latest_audio_activity:
+            process_name = record.process_name or "Unknown"
+            entry = audio.setdefault(
+                process_name,
+                {"process_id": int(record.process_id), "seconds": 0},
+            )
+            entry["seconds"] += seconds
+
+        if self._latest_audio_activity:
+            self._dirty = True
 
     def _on_activity_changed(self, activity):
         self._account_current_activity()
