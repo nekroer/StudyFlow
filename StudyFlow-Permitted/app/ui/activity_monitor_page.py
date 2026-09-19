@@ -86,11 +86,9 @@ class ActivityMonitorPage(QWidget):
         cards.setSpacing(12)
 
         self.total_card = ScreenTimeCard("SCREEN TIME TODAY", "0m", "Recorded foreground time")
-        self.app_card = ScreenTimeCard("CURRENT ACTIVITY", "None", "Waiting for activity")
         self.status_card = ScreenTimeCard("MONITOR STATUS", "Stopped", "Screen-time recorder")
 
         cards.addWidget(self.total_card, 1)
-        cards.addWidget(self.app_card, 1)
         cards.addWidget(self.status_card, 1)
 
         layout.addLayout(cards)
@@ -156,16 +154,6 @@ class ActivityMonitorPage(QWidget):
         total_seconds = int(snapshot.get("total_seconds", 0))
         self.total_card.set_value(self._format_duration(total_seconds))
 
-        current = snapshot.get("current_activity")
-        if current:
-            process = current.get("process_name") or "Unknown"
-            title = current.get("window_title") or "No window title"
-            self.app_card.set_value(process)
-            self.app_card.set_subtitle(title)
-        else:
-            self.app_card.set_value("None")
-            self.app_card.set_subtitle("No foreground activity captured")
-
         running = bool(snapshot.get("is_running"))
         idle = bool(snapshot.get("is_idle"))
 
@@ -185,6 +173,13 @@ class ActivityMonitorPage(QWidget):
             name = app.get("process_name") or "Unknown"
             item = QListWidgetItem(f"{index}.  {name}    ·    {duration}")
             self.apps_list.addItem(item)
+
+        browser_sites = snapshot.get("browser_sites", [])
+        if browser_sites:
+            self.apps_list.addItem(QListWidgetItem("Chrome sites"))
+            for site in browser_sites[:10]:
+                duration = self._format_duration(int(site.get("seconds", 0)))
+                self.apps_list.addItem(QListWidgetItem(f"   {site.get(\"host\") or \"Unknown site\"}    ·    {duration}"))
 
         self.refresh_label.setText("Live data · updated continuously")
 
