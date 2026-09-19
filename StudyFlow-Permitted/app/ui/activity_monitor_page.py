@@ -1,4 +1,4 @@
-from PySide6.QtCore import QTimer, Qt
+from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
     QWidget,
     QVBoxLayout,
@@ -114,11 +114,6 @@ class ActivityMonitorPage(QWidget):
         self.refresh_button.clicked.connect(self.refresh)
         footer.addWidget(self.refresh_button)
         layout.addLayout(footer)
-
-        self.refresh_timer = QTimer(self)
-        self.refresh_timer.setInterval(1000)
-        self.refresh_timer.timeout.connect(lambda: self._render(self.tracker.snapshot()))
-        self.refresh_timer.start()
 
         self.tracker.screen_time_updated.connect(self._on_tracker_update)
         self.tracker.error_occurred.connect(self._on_tracker_error)
