@@ -67,7 +67,6 @@ class WindowsVolumeManager(QObject):
         if not self.volume_interface:
             return
         try:
-            self._original_volume = self.get_current_volume()
             self._enforce_target = max(0.0, min(1.0, target_vol))
             self.volume_interface.SetMasterVolumeLevelScalar(self._enforce_target, None)
             self._is_enforcing = True
@@ -218,7 +217,9 @@ class AutomatedTransitionMonitor:
                 if session.get("completed") is True:
                     continue
 
-                session_id = session.get("quest_id") or session.get("title")
+                session_id = session.get("quest_id")
+                if not session_id:
+                    continue
                 time_str = session.get("start_time")
                 session_title = session.get("title", "Scheduled Session")
                 
