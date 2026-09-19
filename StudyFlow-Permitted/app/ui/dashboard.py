@@ -73,6 +73,8 @@ class DashboardPage(QWidget):
 
             ("📊 Statistics", self.window.show_stats),
 
+            ("🖥️ Activity Monitor", self.window.show_activity_monitor),
+
             ("⚙️ Settings", self.window.show_settings),
 
         ]
