@@ -15,6 +15,8 @@ from app.ui.sprint_page import SprintPage
 from app.ui.journal_page import JournalPage
 from app.ui.stats_page import StatsPage
 from app.ui.settings_page import SettingsPage
+from app.ui.activity_monitor_page import ActivityMonitorPage
+from app.backend.activity.screen_time_tracker import ScreenTimeTracker
 
 from app.backend.youtube.launcher import stop_everything
 from app.utils.volume_controller import restore_volume
@@ -83,6 +85,9 @@ class MainWindow(QMainWindow):
 
         self.stats = StatsPage(self)
 
+        self.activity_tracker = ScreenTimeTracker(parent=self)
+        self.activity_monitor = ActivityMonitorPage(self.activity_tracker, self)
+
         self.settings = SettingsPage(self)
 
         # ---------------- Stack ---------------- #
@@ -94,8 +99,10 @@ class MainWindow(QMainWindow):
         self.stack.addWidget(self.sprints)
         self.stack.addWidget(self.journal)
         self.stack.addWidget(self.stats)
+        self.stack.addWidget(self.activity_monitor)
         self.stack.addWidget(self.settings)
 
+        self.activity_tracker.start()
         self.show_dashboard()
 
     # ---------------- Navigation ---------------- #
@@ -123,6 +130,9 @@ class MainWindow(QMainWindow):
 
     def show_stats(self):
         self.stack.setCurrentWidget(self.stats)
+
+    def show_activity_monitor(self):
+        self.stack.setCurrentWidget(self.activity_monitor)
 
     def show_settings(self):
         self.stack.setCurrentWidget(self.settings)
