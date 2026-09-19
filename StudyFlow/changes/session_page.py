@@ -585,6 +585,7 @@ class SessionPage(QWidget):
         """Authoritatively initializes and starts a scheduled session from the scheduler preserving original transition compatibility."""
         transition_data = transition_data or {}
         quest_id = transition_data.get("quest_id")
+        self.last_completed_session_data = {}
 
         self.sprint_task_id = str(task_id) if task_id else ""
         self.prefilled_task_name = str(title) if title else "Scheduled Session"
