@@ -182,6 +182,14 @@ class ActivityMonitorPage(QWidget):
                 host = site.get("host") or "Unknown site"
                 self.apps_list.addItem(QListWidgetItem(f"   {host}    ·    {duration}"))
 
+        background_audio = snapshot.get("background_audio", [])
+        if background_audio:
+            self.apps_list.addItem(QListWidgetItem("Background audio"))
+            for audio in background_audio[:10]:
+                duration = self._format_duration(int(audio.get("seconds", 0)))
+                name = audio.get("process_name") or "Unknown audio app"
+                self.apps_list.addItem(QListWidgetItem(f"   {name}    ·    {duration}"))
+
         self.refresh_label.setText("Live data · updated continuously")
 
     def _go_back(self):
