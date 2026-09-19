@@ -137,6 +137,18 @@ class ScreenTimeTracker(QObject):
         self.browser_bridge.stop()
         self.audio_monitor.stop()
 
+    def refresh_now(self):
+        """Synchronously account pending activity, persist it, and emit a fresh snapshot."""
+        if not self.is_running():
+            self._emit_update()
+            return
+
+        self._account_current_activity()
+        self._account_browser_activity()
+        self._account_background_audio()
+        self._flush_if_dirty()
+        self._emit_update()
+
     def is_running(self) -> bool:
         return self.accounting_timer.isActive()
 
@@ -250,11 +262,7 @@ class ScreenTimeTracker(QObject):
         active_tab = self._latest_browser_snapshot.get("active_tab") or {}
         audible_tabs = self._latest_browser_snapshot.get("audible_tabs") or []
 
-        if not chrome_foreground:
-            foreground_tab_id = None
-        else:
-            foreground_tab_id = active_tab.get("tab_id")
-
+        foreground_tab_id = active_tab.get("tab_id") if chrome_foreground else None
         seconds = int(elapsed)
         if seconds <= 0:
             return
@@ -383,11 +391,7 @@ class ScreenTimeTracker(QObject):
             )
             entry["seconds"] += seconds
 
-            app = self._application_entry(
-                day,
-                process_name,
-                "",
-            )
+            app = self._application_entry(day, process_name, "")
             app["background_audio_seconds"] += seconds
 
         self._dirty = True
@@ -459,7 +463,7 @@ class ScreenTimeTracker(QObject):
 
         return entry
 
-    def _is_idle(self) -> bool:
+    def _is_idle(self) ->bool:
         info = LASTINPUTINFO()
         info.cbSize = ctypes.sizeof(LASTINPUTINFO)
 
