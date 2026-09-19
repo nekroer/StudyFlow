@@ -75,11 +75,22 @@ class ActivityMonitor(QObject):
             self.error_occurred.emit(str(exc))
             return
 
-        if record == self._current_activity:
-            return
+        if not self._same_activity(record, self._current_activity):
+            self._current_activity = record
+            self.activity_changed.emit(record)
 
-        self._current_activity = record
-        self.activity_changed.emit(record)
+    @staticmethod
+    def _same_activity(first, second) -> bool:
+        if first is None or second is None:
+            return first is second
+
+        return (
+            first.window_handle == second.window_handle
+            and first.process_id == second.process_id
+            and first.process_name == second.process_name
+            and first.window_title == second.window_title
+            and first.executable_path == second.executable_path
+        )
 
     def _capture_foreground_activity(self):
         hwnd = user32.GetForegroundWindow()
