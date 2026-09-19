@@ -88,7 +88,7 @@ class ScreenTimeTracker(QObject):
 
         self.accounting_timer = QTimer(self)
         self.accounting_timer.setInterval(1000)
-        self.accounting_timer.timeout.connect(self._account_current_activity)
+        self.accounting_timer.timeout.connect(self._accounting_tick)
 
         self.save_timer = QTimer(self)
         self.save_timer.setInterval(10000)
@@ -126,9 +126,7 @@ class ScreenTimeTracker(QObject):
 
     def stop(self):
         """Stop observation after persisting current in-memory totals."""
-        self._account_current_activity()
-        self._account_browser_activity()
-        self._account_background_audio()
+        self._accounting_tick()
         self._flush_if_dirty()
 
         self.accounting_timer.stop()
@@ -143,11 +141,8 @@ class ScreenTimeTracker(QObject):
             self._emit_update()
             return
 
-        self._account_current_activity()
-        self._account_browser_activity()
-        self._account_background_audio()
+        self._accounting_tick()
         self._flush_if_dirty()
-        self._emit_update()
 
     def is_running(self) -> bool:
         return self.accounting_timer.isActive()
@@ -236,11 +231,15 @@ class ScreenTimeTracker(QObject):
         result.sort(key=lambda item: item["total_seconds"], reverse=True)
         return result
 
-    def _on_browser_snapshot(self, snapshot: dict):
+    def _accounting_tick(self):
+        """Account all activity sources once and publish one fresh snapshot."""
+        self._account_current_activity(emit_update=False)
         self._account_browser_activity()
-        self._latest_browser_snapshot = snapshot
-        self._last_browser_accounted_at = time.monotonic()
+        self._account_background_audio()
         self._emit_update()
+
+    def _on_browser_snapshot(self, snapshot: dict):
+        self._latest_browser_snapshot = snapshot
 
     def _account_browser_activity(self):
         now = time.monotonic()
@@ -356,12 +355,7 @@ class ScreenTimeTracker(QObject):
         return result
 
     def _on_audio_activity_changed(self, records):
-        self._account_background_audio()
-        self._latest_audio_activity = [
-            record for record in records if record.is_background
-        ]
-        self._last_audio_accounted_at = time.monotonic()
-        self._emit_update()
+        self._latest_audio_activity = list(records)
 
     def _account_background_audio(self):
         now = time.monotonic()
@@ -375,6 +369,19 @@ class ScreenTimeTracker(QObject):
         if seconds <= 0 or not self._latest_audio_activity:
             return
 
+        foreground_pid = (
+            int(self._current_activity.process_id)
+            if self._current_activity
+            else 0
+        )
+        background_records = [
+            record
+            for record in self._latest_audio_activity
+            if int(record.process_id) != foreground_pid
+        ]
+        if not background_records:
+            return
+
         today = self._today_key()
         day = self._data.setdefault("days", {}).setdefault(
             today,
@@ -382,7 +389,7 @@ class ScreenTimeTracker(QObject):
         )
         audio = day.setdefault("background_audio", {})
 
-        for record in self._latest_audio_activity:
+        for record in background_records:
             process_name = record.process_name or "Unknown"
 
             entry = audio.setdefault(
@@ -397,16 +404,9 @@ class ScreenTimeTracker(QObject):
         self._dirty = True
 
     def _on_activity_changed(self, activity):
-        self._account_current_activity()
         self._current_activity = activity
 
-        now = time.monotonic()
-        self._last_accounted_at = now
-        self._last_browser_accounted_at = now
-        self._last_audio_accounted_at = now
-        self._emit_update()
-
-    def _account_current_activity(self):
+    def _account_current_activity(self, emit_update: bool = True):
         now = time.monotonic()
         elapsed = max(0.0, now - self._last_accounted_at)
         self._last_accounted_at = now
@@ -415,7 +415,8 @@ class ScreenTimeTracker(QObject):
             return
 
         if self._is_idle():
-            self._emit_update()
+            if emit_update:
+                self._emit_update()
             return
 
         seconds = int(elapsed)
@@ -440,7 +441,8 @@ class ScreenTimeTracker(QObject):
         app["foreground_seconds"] += seconds
         day["total_seconds"] += seconds
         self._dirty = True
-        self._emit_update()
+        if emit_update:
+            self._emit_update()
 
     @staticmethod
     def _application_entry(day: dict, process_name: str, executable_path: str) -> dict:
