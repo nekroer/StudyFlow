@@ -789,6 +789,7 @@ class SessionPage(QWidget):
             self.btn_popout.setText("🗗 Popout Floating Timer")
             
         self.is_session_active = False
+        self.circular_timer.setEnabled(True)
         self.active_session_data = {}
         self.sprint_task_id = ""
         self.prefilled_task_name = ""
