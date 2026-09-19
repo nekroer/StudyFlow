@@ -179,7 +179,8 @@ class ActivityMonitorPage(QWidget):
             self.apps_list.addItem(QListWidgetItem("Chrome sites"))
             for site in browser_sites[:10]:
                 duration = self._format_duration(int(site.get("seconds", 0)))
-                self.apps_list.addItem(QListWidgetItem(f"   {site.get(\"host\") or \"Unknown site\"}    ·    {duration}"))
+                host = site.get("host") or "Unknown site"
+                self.apps_list.addItem(QListWidgetItem(f"   {host}    ·    {duration}"))
 
         self.refresh_label.setText("Live data · updated continuously")
 
