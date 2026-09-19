@@ -71,6 +71,8 @@ class SchedulingEngine:
         new_end_mins = new_start_mins + new_duration
 
         for session in sessions:
+            if session.get("completed") is True:
+                continue
             if exclude_session_id and session.get("quest_id") == exclude_session_id:
                 continue
             
